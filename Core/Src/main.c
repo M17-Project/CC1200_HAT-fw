@@ -579,9 +579,10 @@ int main(void)
 			  break;
 
 		  	  case CMD_SET_TX_POWER:
-				  if(rxb[2]*0.25f>=0.0f && rxb[2]*0.25f<=13.0) //0 to 13 dBm
+				  if(rxb[2]*0.25f>=-16.0f && rxb[2]*0.25f<=14.0) //-16 to 14 dBm (0x03 to 0x3F)
 				  {
 					  tx_dbm=rxb[2]*0.25f;
+					  trx_data.pwr=floorf(((float)rxb[2]*0.25f+18.0f)*2.0f-1.0f);
 					  interface_resp(CMD_SET_TX_POWER, 0); //OK
 				  }
 				  else
@@ -612,7 +613,6 @@ int main(void)
 		  		  if(trx_state!=TRX_TX && dev_err==ERR_OK)
 		  		  {
 		  			trx_state=TRX_TX;
-		  			trx_data.pwr=63; //TODO: set correct power
 		  			config_rf(MODE_TX, trx_data);
 		  			HAL_Delay(10);
 		  			trx_writecmd(STR_STX);
@@ -685,7 +685,7 @@ int main(void)
 
 		  	  case CMD_GET_CAPS:
 				  //so far the CC1200-HAT can do FM only, half-duplex
-				  interface_resp(CMD_GET_CAPS, 0x82);
+				  interface_resp(CMD_GET_CAPS, 0x02);
 			  break;
 
 		  	  case CMD_GET_RX_FREQ:
@@ -737,8 +737,6 @@ int main(void)
 		  if(tx_bsb_cnt==tx_bsb_total_cnt)
 		  {
 			  HAL_NVIC_DisableIRQ(EXTI15_10_IRQn); //disable external baseband sample trigger signal
-			  trx_data.pwr=3; //set it back to low power
-			  trx_writereg(0x002B, trx_data.pwr);
 			  set_CS(1); //CS high
 			  trx_state=TRX_IDLE;
 			  config_rf(MODE_RX, trx_data);
