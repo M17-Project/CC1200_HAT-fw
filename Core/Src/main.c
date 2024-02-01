@@ -37,8 +37,8 @@
 /* USER CODE BEGIN PD */
 #define IDENT_STR		"CC1200-HAT 420-450 MHz\nFW v1.0.0 by Wojciech SP5WWP"
 #define CC1200_REG_NUM	51						//number of regs used to initialize CC1200s
-#define BSB_BUFLEN		4800					//tx/rx buffer size in samples (200ms at fs=24kHz)
-#define BSB_RUNUP		2880					//120ms worth of baseband data (at 24kHz)
+#define BSB_BUFLEN		4800UL					//tx/rx buffer size in samples (200ms at fs=24kHz)
+#define BSB_RUNUP		2880UL					//120ms worth of baseband data (at 24kHz)
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -77,8 +77,8 @@ float tx_dbm=0.0f;											//RF power setpoint, dBm
 //buffers and interface stuff
 volatile uint8_t rxb[100]={0};								//rx buffer for interface data
 volatile uint8_t rx_bc=0;									//UART1 rx byte counter
-int8_t tx_bsb_buff[BSB_BUFLEN]={0};							//buffer for transmission
-uint32_t tx_bsb_total_cnt=0;								//how many samples were received
+volatile int8_t tx_bsb_buff[BSB_BUFLEN]={0};				//buffer for transmission
+volatile uint32_t tx_bsb_total_cnt=0;						//how many samples were received
 uint32_t tx_bsb_cnt=0;										//how many samples were transmitted
 int8_t tx_bsb_sample=0;										//current tx sample
 int8_t rx_bsb_sample=0;										//current rx sample
@@ -727,8 +727,7 @@ int main(void)
 	  if(bsb_tx_pend==1)
 	  {
 		  //send baseband sample ASAP
-		  HAL_SPI_Transmit(&hspi1, (uint8_t*)&tx_bsb_sample, 1, 2);
-
+		  HAL_SPI_Transmit_IT(&hspi1, (uint8_t*)&tx_bsb_sample, 1);
 		  //fetch another sample
 		  tx_bsb_sample=tx_bsb_buff[tx_bsb_cnt%BSB_BUFLEN];
 		  tx_bsb_cnt++;
@@ -1022,7 +1021,7 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(TRX_TRIG_GPIO_Port, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
-  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 1, 0);
+  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 
 /* USER CODE BEGIN MX_GPIO_Init_2 */
