@@ -37,8 +37,8 @@
 /* USER CODE BEGIN PD */
 #define IDENT_STR		"CC1200-HAT 420-450 MHz\nFW v1.0.0 by Wojciech SP5WWP"
 #define CC1200_REG_NUM	51						//number of regs used to initialize CC1200s
-#define BSB_BUFLEN		4800UL					//tx/rx buffer size in samples (200ms at fs=24kHz)
-#define BSB_RUNUP		2880UL					//120ms worth of baseband data (at 24kHz)
+#define BSB_BUFLEN		5760ULL					//tx/rx buffer size in samples (240ms at fs=24kHz)
+#define BSB_RUNUP		960ULL					//40ms worth of baseband data (at 24kHz)
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -435,7 +435,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 		else //pass baseband samples to the buffer
 		{
 			HAL_UART_Receive_IT(&huart1, (uint8_t*)rxb, 1);
-			tx_bsb_buff[(BSB_RUNUP+tx_bsb_total_cnt)%BSB_BUFLEN]=rxb[0];
+			tx_bsb_buff[tx_bsb_total_cnt%BSB_BUFLEN]=rxb[0];
 			tx_bsb_total_cnt++;
 		}
 	}
@@ -620,16 +620,15 @@ int main(void)
 		  			//stop UART timeout timer
 		  			HAL_TIM_Base_Stop_IT(&htim10);
 		  			HAL_UART_AbortReceive_IT(&huart1);
-		  			HAL_UART_Receive_IT(&huart1, (uint8_t*)rxb, 1);
 
 		  			//fill the run-up
 		  			memset((uint8_t*)tx_bsb_buff, 0, BSB_RUNUP);
 		  			tx_bsb_total_cnt=BSB_RUNUP;
-
 		  			//initiate baseband SPI transfer to the transmitter
 		  			uint8_t header[2]={0x2F|0x40, 0x7E}; //CFM_TX_DATA_IN, burst access
 		  			set_CS(0); //CS low
 		  			HAL_SPI_Transmit(&hspi1, header, 2, 10); //send 2-byte header
+		  			HAL_UART_Receive_IT(&huart1, (uint8_t*)rxb, 1);
 		  			HAL_NVIC_EnableIRQ(EXTI15_10_IRQn); //enable external baseband sample trigger signal
 		  			HAL_GPIO_WritePin(TX_LED_GPIO_Port, TX_LED_Pin, 1);
 		  			HAL_GPIO_WritePin(RX_LED_GPIO_Port, RX_LED_Pin, 0);
@@ -732,8 +731,8 @@ int main(void)
 		  tx_bsb_sample=tx_bsb_buff[tx_bsb_cnt%BSB_BUFLEN];
 		  tx_bsb_cnt++;
 
-		  //nothing else to transmit
-		  if(tx_bsb_cnt==tx_bsb_total_cnt)
+		  //nothing else to transmit (or buffer underrun ;)
+		  if(tx_bsb_cnt>=tx_bsb_total_cnt)
 		  {
 			  HAL_NVIC_DisableIRQ(EXTI15_10_IRQn); //disable external baseband sample trigger signal
 			  set_CS(1); //CS high
@@ -743,6 +742,7 @@ int main(void)
 			  trx_writecmd(STR_SRX);
 			  tx_bsb_cnt=0;
 			  tx_bsb_total_cnt=0;
+			  tx_bsb_sample=0;
 			  HAL_GPIO_WritePin(TX_LED_GPIO_Port, TX_LED_Pin, 0);
 		  }
 
