@@ -342,6 +342,10 @@ void config_rf(enum mode_t mode, struct trx_data_t trx_data)
 		cc1200_rx_settings[34*3-1]=freq_word&0xFF;
 		config_ic(cc1200_rx_settings);
 		trx_writereg(0x0001, 29);		//IOCFG2, GPIO2 - CLKEN_CFM
+		//carrier sense test
+		trx_writereg(0x0000, 17);		//IOCFG3, GPIO3 - CARRIER_SENSE
+		trx_writereg(0x0018, 256-97);	//AGC_GAIN_ADJUST
+		trx_writereg(0x0017, 256-70);	//AGC_CS_THR
 	}
 	else if(mode==MODE_TX)
 	{
@@ -398,6 +402,17 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 	{
 		bsb_tx_pend=1;
 	}
+	/*else if(GPIO_Pin==TRX_GPIO3_Pin) //carrier sense test
+	{
+		if(TRX_GPIO3_GPIO_Port->IDR&(1U<<14))
+		{
+			SVC_LED_GPIO_Port->BSRR=(uint32_t)SVC_LED_Pin;
+		}
+		else
+		{
+			SVC_LED_GPIO_Port->BSRR=(uint32_t)SVC_LED_Pin<<16;
+		}
+	}*/
 }
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
@@ -702,9 +717,9 @@ int main(void)
 			  break;
 
 		  	  /*case 0x88:
-		  		  resp[0]=trx_readreg(CHIP_RX, 0x0013);
-		  		  resp[1]=trx_readreg(CHIP_RX, 0x0014);
-		  		  resp[2]=trx_readreg(CHIP_RX, 0x0015);
+		  		  resp[0]=0x88;
+		  		  resp[1]=3;
+		  		  resp[2]=trx_readreg(0x2F71); //RSSI
 		  		  HAL_UART_Transmit_IT(&huart1, resp, 3);
 			  break;*/
 
@@ -1014,11 +1029,11 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : TRX_TRIG_Pin */
-  GPIO_InitStruct.Pin = TRX_TRIG_Pin;
+  /*Configure GPIO pins : TRX_GPIO0_Pin TRX_TRIG_Pin TRX_GPIO3_Pin */
+  GPIO_InitStruct.Pin = TRX_GPIO0_Pin|TRX_TRIG_Pin|TRX_GPIO3_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(TRX_TRIG_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
   HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);

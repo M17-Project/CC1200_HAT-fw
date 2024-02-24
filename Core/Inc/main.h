@@ -61,9 +61,15 @@ void Error_Handler(void);
 #define TRX_nCS_GPIO_Port GPIOA
 #define TRX_nRST_Pin GPIO_PIN_0
 #define TRX_nRST_GPIO_Port GPIOB
+#define TRX_GPIO0_Pin GPIO_PIN_12
+#define TRX_GPIO0_GPIO_Port GPIOB
+#define TRX_GPIO0_EXTI_IRQn EXTI15_10_IRQn
 #define TRX_TRIG_Pin GPIO_PIN_13
 #define TRX_TRIG_GPIO_Port GPIOB
 #define TRX_TRIG_EXTI_IRQn EXTI15_10_IRQn
+#define TRX_GPIO3_Pin GPIO_PIN_14
+#define TRX_GPIO3_GPIO_Port GPIOB
+#define TRX_GPIO3_EXTI_IRQn EXTI15_10_IRQn
 #define SVC_LED_Pin GPIO_PIN_3
 #define SVC_LED_GPIO_Port GPIOB
 #define RX_LED_Pin GPIO_PIN_4
