@@ -567,14 +567,19 @@ int main(void)
 		  		  memcpy((uint8_t*)&freq, (uint8_t*)&rxb[2], sizeof(uint32_t));
 		  		  if(freq>=420e6 && freq<=440e6)
 		  		  {
+		  			  trx_writecmd(STR_IDLE);
+		  			  HAL_Delay(10);
 		  			  //reconfig RX
 		  			  trx_data.rx_frequency=freq;
-		  			  config_rf(MODE_RX, trx_data); //optimize this later
-		  			  interface_resp(CMD_SET_RX_FREQ, 0); //OK
+		  			  uint32_t freq_word=roundf((float)freq/5000000.0*((uint32_t)1<<16));
+		  			  trx_writereg(0x2F0C, (freq_word>>16)&0xFF);
+		  			  trx_writereg(0x2F0D, (freq_word>>8)&0xFF);
+		  			  trx_writereg(0x2F0E, freq_word&0xFF);
+		  			  interface_resp(CMD_SET_RX_FREQ, ERR_OK);
 		  		  }
 		  		  else
 		  		  {
-		  			  interface_resp(CMD_SET_RX_FREQ, 1); //ERR
+		  			  interface_resp(CMD_SET_RX_FREQ, ERR_RANGE); //ERR
 		  		  }
 		  	  break;
 
@@ -582,14 +587,19 @@ int main(void)
 		  		  memcpy((uint8_t*)&freq, (uint8_t*)&rxb[2], sizeof(uint32_t)); //no sanity checks
 		  		  if(freq>=420e6 && freq<=440e6)
 		  		  {
+		  			  trx_writecmd(STR_IDLE);
+		  			  HAL_Delay(10);
 		  			  //reconfig TX
 		  			  trx_data.tx_frequency=freq;
-		  			  config_rf(MODE_TX, trx_data); //optimize this later
-		  			  interface_resp(CMD_SET_TX_FREQ, 0); //OK
+		  			  uint32_t freq_word=roundf((float)freq/5000000.0*((uint32_t)1<<16));
+		  			  trx_writereg(0x2F0C, (freq_word>>16)&0xFF);
+		  			  trx_writereg(0x2F0D, (freq_word>>8)&0xFF);
+		  			  trx_writereg(0x2F0E, freq_word&0xFF);
+		  			  interface_resp(CMD_SET_TX_FREQ, ERR_OK);
 		  		  }
 		  		  else
 		  		  {
-		  			  interface_resp(CMD_SET_TX_FREQ, 1); //ERR
+		  			  interface_resp(CMD_SET_TX_FREQ, ERR_RANGE); //ERR
 		  		  }
 			  break;
 
@@ -598,18 +608,18 @@ int main(void)
 				  {
 					  tx_dbm=rxb[2]*0.25f;
 					  trx_data.pwr=floorf(((float)rxb[2]*0.25f+18.0f)*2.0f-1.0f);
-					  interface_resp(CMD_SET_TX_POWER, 0); //OK
+					  interface_resp(CMD_SET_TX_POWER, ERR_OK); //OK
 				  }
 				  else
 				  {
 					  //no change, return error code
-					  interface_resp(CMD_SET_TX_POWER, 1); //ERR
+					  interface_resp(CMD_SET_TX_POWER, ERR_RANGE); //ERR
 				  }
 			  break;
 
 		  	  case CMD_SET_FREQ_CORR:
 		  		  trx_data.fcorr=*((int16_t*)&rxb[2]);
-		  		  interface_resp(CMD_SET_TX_POWER, 0); //OK
+		  		  interface_resp(CMD_SET_TX_POWER, ERR_OK); //OK
 			  break;
 
 		  	  case CMD_SET_AFC:
@@ -621,7 +631,7 @@ int main(void)
 		  		  {
 		  			  trx_writereg(0x2F01, 0x02);
 		  		  }
-		  		  interface_resp(CMD_SET_AFC, 0); //OK
+		  		  interface_resp(CMD_SET_AFC, ERR_OK); //OK
 			  break;
 
 		  	  case CMD_SET_TX_START:
@@ -685,7 +695,7 @@ int main(void)
 		  			  set_CS(1);
 		  			  trx_state=TRX_IDLE;
 		  			  HAL_GPIO_WritePin(RX_LED_GPIO_Port, RX_LED_Pin, 0);
-		  			  interface_resp(CMD_SET_RX, 0); //OK
+		  			  interface_resp(CMD_SET_RX, ERR_OK); //OK
 		  		  }
 			  break;
 

@@ -41,8 +41,22 @@ enum interface_comm_t
 enum err_t
 {
 	ERR_OK,					//all good
-	ERR_TRX_PLL,			//RX PLL lock error
-	ERR_TRX_SPI,			//RX SPI comms error
+	ERR_TRX_PLL,			//TRX PLL lock error
+	ERR_TRX_SPI,			//TRX SPI comms error
+	ERR_RANGE				//value out of range
+};
+
+//internal TRX state, as per p. 8 of the datasheet
+enum int_state_t
+{
+	STATE_IDLE,
+	STATE_RX,
+	STATE_TX,
+	STATE_FSTXON,
+	STATE_CALIBRATE,
+	STATE_SETTLING,
+	STATE_RX_FIFO_ERR,
+	STATE_TX_FIFO_ERR
 };
 
 const char *errstrings[5]=
