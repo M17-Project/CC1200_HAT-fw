@@ -26,7 +26,8 @@ local.properties
 .recommenders/
 
 Debug/
-Release/
+Release/*
+!Release/CC1200_HAT-fw.bin
 
 .settings/
 .mxproject
