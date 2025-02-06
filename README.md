@@ -1,5 +1,5 @@
 # CC1200_HAT-fw
-Basic firmware for the [CC1200 HAT RF board](https://github.com/M17-Project/CC1200_HAT-hw). Generated with CubeIDE 1.16.1.
+Basic firmware for the [CC1200 HAT RF board](https://github.com/M17-Project/CC1200_HAT-hw). Generated with CubeIDE 1.17.0.
 
 ### Flashing
 Use the command below to flash the target device over UART (by default that's `/dev/ttyAMA0`).
