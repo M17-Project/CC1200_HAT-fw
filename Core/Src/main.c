@@ -566,7 +566,7 @@ int main(void)
 
 		  	  case CMD_SET_RX_FREQ:
 		  		  memcpy((uint8_t*)&freq, (uint8_t*)&rxb[2], sizeof(uint32_t));
-		  		  if(freq>=420e6 && freq<=440e6)
+				  if(freq>=420e6 && freq<=450e6)
 		  		  {
 		  			  trx_writecmd(STR_IDLE);
 		  			  HAL_Delay(10);
@@ -586,7 +586,7 @@ int main(void)
 
 		  	  case CMD_SET_TX_FREQ:
 		  		  memcpy((uint8_t*)&freq, (uint8_t*)&rxb[2], sizeof(uint32_t)); //no sanity checks
-		  		  if(freq>=420e6 && freq<=440e6)
+				  if(freq>=420e6 && freq<=450e6)
 		  		  {
 		  			  trx_writecmd(STR_IDLE);
 		  			  HAL_Delay(10);
