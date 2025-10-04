@@ -33,8 +33,10 @@ Release/*.bin
 Release/*.map
 Release/*.list
 Release/objects.list
-Release/Core/
-Release/Drivers/
+Release/**/*.o
+Release/**/*.d
+Release/**/*.su
+Release/**/*.cyclo
 
 .settings/
 .mxproject
