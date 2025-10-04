@@ -35,7 +35,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define IDENT_STR		"CC1200-HAT 420-450 MHz\nFW v1.1 by Wojciech SP5WWP"
+#define IDENT_STR		"CC1200-HAT 420-450 MHz\nFW v1.2 by Wojciech SP5WWP"
 #define CC1200_REG_NUM	51						//number of regs used to initialize CC1200s
 #define BSB_BUFLEN		(6*960U)				//total tx/rx buffer size in samples (6 frames = 240ms, 6*960 samples at fs=24kHz)
 #define BSB_RUNUP		(2*960U)				//runup length for transmissions (2 frames = 80ms, 2*960 samples at fs=24kHz)
