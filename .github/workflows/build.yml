@@ -2,11 +2,13 @@ name: Build Firmware
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - '**'
     tags:
       - 'v*'
   pull_request:
-    branches: [ main ]
+    branches:
+      - '**'
 
 jobs:
   build:
