@@ -43,19 +43,11 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Install ARM GCC toolchain
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y gcc-arm-none-eabi binutils-arm-none-eabi
-
-    - name: Build firmware
-      run: |
-        cd Release
-        make -j$(nproc) all
-        arm-none-eabi-objcopy -O binary CC1200_HAT-fw.elf CC1200_HAT-fw.bin
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: firmware-${{ github.sha }}
+        path: Release/
 
     - name: Create Release
       uses: softprops/action-gh-release@v1
