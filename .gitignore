@@ -26,8 +26,15 @@ local.properties
 .recommenders/
 
 Debug/
-Release/*
-!Release/CC1200_HAT-fw.bin
+
+# Release build artifacts (keep makefiles and source lists)
+Release/*.elf
+Release/*.bin
+Release/*.map
+Release/*.list
+Release/objects.list
+Release/Core/
+Release/Drivers/
 
 .settings/
 .mxproject
