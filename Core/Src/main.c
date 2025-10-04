@@ -620,7 +620,7 @@ int main(void)
 
 		  	  case CMD_SET_FREQ_CORR:
 		  		  trx_data.fcorr=*((int16_t*)&rxb[2]);
-		  		  interface_resp(CMD_SET_TX_POWER, ERR_OK); //OK
+		  		  interface_resp(CMD_SET_FREQ_CORR, ERR_OK); //OK
 			  break;
 
 		  	  case CMD_SET_AFC:
