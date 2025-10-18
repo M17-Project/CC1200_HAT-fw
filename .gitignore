@@ -40,3 +40,6 @@ Release/**/*.cyclo
 
 .settings/
 .mxproject
+
+# VS Code
+.vscode/
