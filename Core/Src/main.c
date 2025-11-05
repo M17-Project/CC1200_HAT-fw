@@ -69,6 +69,7 @@ struct trx_data_t
 	uint8_t pwr;			//power setting (3..63)
 	int16_t fcorr;			//frequency correction
 	uint8_t pll_locked;		//PLL locked flag
+	uint8_t afc;			//AFC on/off
 }trx_data;
 
 //PA
@@ -346,6 +347,14 @@ void config_rf(enum mode_t mode, struct trx_data_t trx_data)
 		trx_writereg(0x0000, 17);		//IOCFG3, GPIO3 - CARRIER_SENSE
 		trx_writereg(0x0018, 256-97);	//AGC_GAIN_ADJUST
 		trx_writereg(0x0017, 256-70);	//AGC_CS_THR
+		if(trx_data.afc)
+		{
+			trx_writereg(0x2F01, 0x22);
+		}
+		else
+		{
+			trx_writereg(0x2F01, 0x02);
+		}
 	}
 	else if(mode==MODE_TX)
 	{
@@ -517,6 +526,7 @@ int main(void)
   trx_data.rx_frequency=433475000;			//default
   trx_data.tx_frequency=433475000;			//default
   trx_data.fcorr=0;
+  trx_data.afc=0;
   trx_data.pwr=3;							//3 to 63
   tx_dbm=10.00f;							//10dBm default
   config_rf(MODE_RX, trx_data);
@@ -624,14 +634,7 @@ int main(void)
 			  break;
 
 		  	  case CMD_SET_AFC:
-		  		  if(rxb[2])
-		  		  {
-		  			  trx_writereg(0x2F01, 0x22);
-		  		  }
-		  		  else
-		  		  {
-		  			  trx_writereg(0x2F01, 0x02);
-		  		  }
+				  trx_data.afc = rxb[2];
 		  		  interface_resp(CMD_SET_AFC, ERR_OK); //OK
 			  break;
 
