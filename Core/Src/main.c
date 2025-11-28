@@ -63,7 +63,7 @@ uint32_t dev_err=(uint32_t)ERR_OK;	//default state - no error
 
 struct trx_data_t
 {
-	uint8_t name[20];		//chip's name (CC1200, CC1201, unknown ID)
+	char name[20];			//chip's name (CC1200, CC1201, unknown ID)
 	uint32_t rx_frequency;	//frequency in hertz
 	uint32_t tx_frequency;	//frequency in hertz
 	uint8_t pwr;			//power setting (3..63)
@@ -192,16 +192,16 @@ uint8_t read_status(void)
 	return rxd;
 }
 
-void detect_ic(uint8_t* out)
+void detect_rf_ic(char* out)
 {
 	uint8_t trxid=read_pn();
 
 	if(trxid==0x20)
-		sprintf((char*)out, "CC1200");
+		sprintf(out, "CC1200");
 	else if(trxid==0x21)
-		sprintf((char*)out, "CC1201");
+		sprintf(out, "CC1201");
 	else
-		sprintf((char*)out, "unknown ID (0x%02X)", trxid);
+		sprintf(out, "unknown ID (0x%02X)", trxid);
 }
 
 void config_ic(uint8_t* settings)
@@ -522,28 +522,35 @@ int main(void)
   HAL_Delay(100);
   trx_writecmd(STR_SRES);
   HAL_Delay(50);
-  detect_ic(trx_data.name);
+  detect_rf_ic(trx_data.name);
 
-  /*if(strstr((char*)trx_data.name, "CC1200")!=NULL)
+  /*if(strcmp(trx_data.name, "CC1200")==0)
   {
 	  while(1)
 	  {
-		  HAL_GPIO_TogglePin(SVC_LED_GPIO_Port, SVC_LED_Pin);
-		  HAL_Delay(100);
+		  HAL_GPIO_WritePin(SVC_LED_GPIO_Port, SVC_LED_Pin, 1);
+		  HAL_Delay(20);
+		  HAL_GPIO_WritePin(SVC_LED_GPIO_Port, SVC_LED_Pin, 0);
+		  HAL_Delay(2000);
 	  }
   }*/
 
   trx_data.rx_frequency=433475000;			//default
   trx_data.tx_frequency=433475000;			//default
-  trx_data.fcorr=0;
-  trx_data.afc=0;
-  trx_data.pwr=3;							//3 to 63
+  trx_data.fcorr=0;							//frequency correction (arbitrary units)
+  trx_data.afc=0;							//automatic frequency control (AFC)
+  trx_data.pwr=3;							//3 to 63 (arbitrary units)
   tx_dbm=10.00f;							//10dBm default
+
+  //config the CC1200
   config_rf(MODE_RX, trx_data);
   HAL_Delay(10);
+
+  //switch the CC1200 to RX mode
   trx_writecmd(STR_SRX);
   HAL_Delay(50);
 
+  //check if CC1200 PLL locked
   trx_data.pll_locked = ((trx_readreg(0x2F8D)^0x80)&0x81)==0x81; //FSCAL_CTRL=1 and FSCAL_CTRL_NOT_USED=0
 
   if(!trx_data.pll_locked)
