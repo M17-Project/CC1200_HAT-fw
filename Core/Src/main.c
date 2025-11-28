@@ -222,7 +222,7 @@ void config_rf(enum mode_t mode, struct trx_data_t trx_data)
 {
 	static uint8_t cc1200_rx_settings[CC1200_REG_NUM*3] =
 	{
-		0x00, 0x01, 0x08,
+		0x00, 0x01, 0x29, //IOCFG2, GPIO2 - CLKEN_CFM
 		0x00, 0x03, 0x09,
 		0x00, 0x08, 0x1F,
 		0x00, 0x0A, 0xAD, //deviation - a little bit under 3.3kHz full scale
@@ -277,7 +277,7 @@ void config_rf(enum mode_t mode, struct trx_data_t trx_data)
 
 	static uint8_t cc1200_tx_settings[CC1200_REG_NUM*3] =
 	{
-		0x00, 0x01, 0x08,
+		0x00, 0x01, 0x30, //IOCFG2, GPIO2 - CFM_TX_DATA_CLK (does not work for some reason)
 		0x00, 0x03, 0x09,
 		0x00, 0x08, 0x1F,
 		0x00, 0x0A, 0xAD, //deviation - a little bit under 3.3kHz full scale
@@ -338,15 +338,20 @@ void config_rf(enum mode_t mode, struct trx_data_t trx_data)
 
 	if(mode==MODE_RX)
 	{
+		//update the frequency setting registers
 		cc1200_rx_settings[32*3-1]=(freq_word>>16)&0xFF;
 		cc1200_rx_settings[33*3-1]=(freq_word>>8)&0xFF;
 		cc1200_rx_settings[34*3-1]=freq_word&0xFF;
+
+		//apply config - RX
 		config_ic(cc1200_rx_settings);
-		trx_writereg(0x0001, 29);		//IOCFG2, GPIO2 - CLKEN_CFM
-		//carrier sense test
-		trx_writereg(0x0000, 17);		//IOCFG3, GPIO3 - CARRIER_SENSE
-		trx_writereg(0x0018, 256-97);	//AGC_GAIN_ADJUST
-		trx_writereg(0x0017, 256-70);	//AGC_CS_THR
+
+		//overwrite a few registers: carrier sense test
+		trx_writereg(0x0000, 17);			//register 0x0000: IOCFG3, GPIO3 - CARRIER_SENSE
+		trx_writereg(0x0018, 256-97);		//register 0x0018: AGC_GAIN_ADJUST
+		trx_writereg(0x0017, 256-70);		//register 0x0017: AGC_CS_THR
+
+		//apply AFC
 		if(trx_data.afc)
 		{
 			trx_writereg(0x2F01, 0x22);
@@ -359,19 +364,24 @@ void config_rf(enum mode_t mode, struct trx_data_t trx_data)
 	else if(mode==MODE_TX)
 	{
 		uint8_t tx_pwr=trx_data.pwr;
+
 		if(tx_pwr>0x3F) tx_pwr=0x3F;
 		if(tx_pwr<0x03) tx_pwr=0x03;
+
+		//update power and frequency registers
 		cc1200_tx_settings[26*3-1]=tx_pwr;
 		cc1200_tx_settings[32*3-1]=(freq_word>>16)&0xFF;
 		cc1200_tx_settings[33*3-1]=(freq_word>>8)&0xFF;
 		cc1200_tx_settings[34*3-1]=freq_word&0xFF;
+
+		//apply config - TX
 		config_ic(cc1200_tx_settings);
-		trx_writereg(0x0001, 30);		//IOCFG2, GPIO2 - CFM_TX_DATA_CLK
 	}
 
 	//frequency correction
 	trx_writereg(0x2F0A, (uint16_t)trx_data.fcorr>>8);
 	trx_writereg(0x2F0B, (uint16_t)trx_data.fcorr&0xFF);
+
 	//disable address autoincrement in burst mode (default - enabled)
 	trx_writereg(0x2F06, 0);
 }
