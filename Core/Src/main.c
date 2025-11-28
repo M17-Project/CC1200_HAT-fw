@@ -53,6 +53,8 @@ TIM_HandleTypeDef htim10;
 TIM_HandleTypeDef htim11;
 
 UART_HandleTypeDef huart1;
+DMA_HandleTypeDef hdma_usart1_rx;
+DMA_HandleTypeDef hdma_usart1_tx;
 
 PCD_HandleTypeDef hpcd_USB_OTG_FS;
 
@@ -84,7 +86,7 @@ uint32_t tx_bsb_cnt=0;										//how many samples were transmitted
 int8_t tx_bsb_sample=0;										//current tx sample
 int8_t rx_bsb_sample=0;										//current rx sample
 
-enum trx_state_t trx_state=TRX_IDLE;						//transmitter state
+volatile enum trx_state_t trx_state=TRX_IDLE;				//transmitter state
 volatile uint8_t bsb_tx_pend=0;								//do we need to transmit another baseband sample?
 volatile uint8_t bsb_rx_pend=0;								//do we need to read another baseband sample?
 volatile enum interface_comm_t interface_comm=COMM_IDLE;	//interface comm status
@@ -93,6 +95,7 @@ volatile enum interface_comm_t interface_comm=COMM_IDLE;	//interface comm status
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_USB_OTG_FS_PCD_Init(void);
@@ -505,6 +508,7 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_SPI1_Init();
   MX_USART1_UART_Init();
   MX_USB_OTG_FS_PCD_Init();
@@ -1021,6 +1025,25 @@ static void MX_USB_OTG_FS_PCD_Init(void)
   /* USER CODE BEGIN USB_OTG_FS_Init 2 */
 
   /* USER CODE END USB_OTG_FS_Init 2 */
+
+}
+
+/**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA2_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA2_Stream2_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA2_Stream2_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA2_Stream2_IRQn);
+  /* DMA2_Stream7_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA2_Stream7_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA2_Stream7_IRQn);
 
 }
 
