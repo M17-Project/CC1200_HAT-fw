@@ -52,6 +52,9 @@ default.size.stdout \
 OBJDUMP_LIST += \
 CC1200_HAT-fw.list \
 
+OBJCOPY_BIN += \
+CC1200_HAT-fw.bin \
+
 
 # All Target
 all: main-build
@@ -60,27 +63,32 @@ all: main-build
 main-build: CC1200_HAT-fw.elf secondary-outputs
 
 # Tool invocations
-CC1200_HAT-fw.elf CC1200_HAT-fw.map: $(OBJS) $(USER_OBJS) ../STM32F411CEUX_FLASH.ld makefile $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "CC1200_HAT-fw.elf" $(OBJS) $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"../STM32F411CEUX_FLASH.ld" --specs=nosys.specs -Wl,-Map="CC1200_HAT-fw.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
+CC1200_HAT-fw.elf CC1200_HAT-fw.map: $(OBJS) $(USER_OBJS) C:\Users\SP5WWP\Documents\CubeMX\CC1200_HAT-fw\STM32F411CEUX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-gcc -o "CC1200_HAT-fw.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"C:\Users\SP5WWP\Documents\CubeMX\CC1200_HAT-fw\STM32F411CEUX_FLASH.ld" --specs=nosys.specs -Wl,-Map="CC1200_HAT-fw.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 
-default.size.stdout: $(EXECUTABLES) makefile $(OPTIONAL_TOOL_DEPS)
+default.size.stdout: $(EXECUTABLES) makefile objects.list $(OPTIONAL_TOOL_DEPS)
 	arm-none-eabi-size  $(EXECUTABLES)
 	@echo 'Finished building: $@'
 	@echo ' '
 
-CC1200_HAT-fw.list: $(EXECUTABLES) makefile $(OPTIONAL_TOOL_DEPS)
+CC1200_HAT-fw.list: $(EXECUTABLES) makefile objects.list $(OPTIONAL_TOOL_DEPS)
 	arm-none-eabi-objdump -h -S $(EXECUTABLES) > "CC1200_HAT-fw.list"
+	@echo 'Finished building: $@'
+	@echo ' '
+
+CC1200_HAT-fw.bin: $(EXECUTABLES) makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-objcopy  -O binary $(EXECUTABLES) "CC1200_HAT-fw.bin"
 	@echo 'Finished building: $@'
 	@echo ' '
 
 # Other Targets
 clean:
-	-$(RM) CC1200_HAT-fw.elf CC1200_HAT-fw.list CC1200_HAT-fw.map default.size.stdout
+	-$(RM) CC1200_HAT-fw.bin CC1200_HAT-fw.elf CC1200_HAT-fw.list CC1200_HAT-fw.map default.size.stdout
 	-@echo ' '
 
-secondary-outputs: $(SIZE_OUTPUT) $(OBJDUMP_LIST)
+secondary-outputs: $(SIZE_OUTPUT) $(OBJDUMP_LIST) $(OBJCOPY_BIN)
 
 fail-specified-linker-script-missing:
 	@echo 'Error: Cannot find the specified linker script. Check the linker settings in the build configuration.'
