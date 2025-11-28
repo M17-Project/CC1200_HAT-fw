@@ -1,11 +1,5 @@
-/*
- * enums.h
- *
- *  Created on: Dec 27, 2023
- *      Author: SP5WWP
- */
-
-#pragma once
+#ifndef INC_ENUMS_H_
+#define INC_ENUMS_H_
 
 enum mode_t
 {
@@ -59,9 +53,5 @@ enum int_state_t
 	STATE_TX_FIFO_ERR
 };
 
-const char *errstrings[5]=
-{
-	"OK",
-	"PLL did not lock",
-	"SPI communication error",
-};
+#endif
+

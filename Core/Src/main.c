@@ -25,7 +25,10 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdarg.h>
+
 #include "interface_cmds.h"
+#include "enums.h"
+#include "cc1200.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -35,10 +38,8 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define IDENT_STR		"CC1200-HAT 420-450 MHz\nFW v1.2 by Wojciech SP5WWP"
-#define CC1200_REG_NUM	51						//number of regs used to initialize CC1200s
-#define BSB_BUFLEN		(6*960U)				//total tx/rx buffer size in samples (6 frames = 240ms, 6*960 samples at fs=24kHz)
-#define BSB_RUNUP		(2*960U)				//runup length for transmissions (2 frames = 80ms, 2*960 samples at fs=24kHz)
+#define IDENT_STR		"CC1200-HAT 420-450 MHz\nFW v2.0 by Wojciech SP5WWP"
+#define UART_RX_BUF_SIZE	1024					//buffer length for UART
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -59,37 +60,26 @@ DMA_HandleTypeDef hdma_usart1_tx;
 PCD_HandleTypeDef hpcd_USB_OTG_FS;
 
 /* USER CODE BEGIN PV */
-#include "enums.h"
+//device config
+trx_data_t trx_data;
 
+//interface
 uint32_t dev_err=(uint32_t)ERR_OK;	//default state - no error
-
-struct trx_data_t
-{
-	char name[20];			//chip's name (CC1200, CC1201, unknown ID)
-	uint32_t rx_frequency;	//frequency in hertz
-	uint32_t tx_frequency;	//frequency in hertz
-	uint8_t pwr;			//power setting (3..63)
-	int16_t fcorr;			//frequency correction
-	uint8_t pll_locked;		//PLL locked flag
-	uint8_t afc;			//AFC on/off
-}trx_data;
 
 //PA
 float tx_dbm=0.0f;											//RF power setpoint, dBm
 
 //buffers and interface stuff
-volatile uint8_t rxb[100]={0};								//rx buffer for interface data
-volatile uint8_t rx_bc=0;									//UART1 rx byte counter
-volatile int8_t tx_bsb_buff[BSB_BUFLEN]={0};				//buffer for transmission
-volatile uint32_t tx_bsb_total_cnt=0;						//how many samples were received
-uint32_t tx_bsb_cnt=0;										//how many samples were transmitted
-int8_t tx_bsb_sample=0;										//current tx sample
-int8_t rx_bsb_sample=0;										//current rx sample
+volatile uint8_t uart_rx_buf[UART_RX_BUF_SIZE];				//DMA UART RX buffer
+uint8_t rxb[UART_RX_BUF_SIZE];								//packet data UART RX buffer
+volatile uint16_t rx_count;
+volatile uint16_t rx_expected;
+uint16_t uart_rx_tail;
 
 volatile enum trx_state_t trx_state=TRX_IDLE;				//transmitter state
-volatile uint8_t bsb_tx_pend=0;								//do we need to transmit another baseband sample?
-volatile uint8_t bsb_rx_pend=0;								//do we need to read another baseband sample?
-volatile enum interface_comm_t interface_comm=COMM_IDLE;	//interface comm status
+
+//misc
+uint8_t dbg_enabled = 0;									//debug strings enabled?
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -107,292 +97,115 @@ static void MX_TIM11_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-void set_nRST(uint8_t state)
-{
-	if(state)
-		TRX_nRST_GPIO_Port->BSRR=(uint32_t)TRX_nRST_Pin;
-	else
-		TRX_nRST_GPIO_Port->BSRR=(uint32_t)TRX_nRST_Pin<<16;
-}
-
-void set_CS(uint8_t state)
-{
-	if(state)
-		TRX_nCS_GPIO_Port->BSRR=(uint32_t)TRX_nCS_Pin;
-	else
-		TRX_nCS_GPIO_Port->BSRR=(uint32_t)TRX_nCS_Pin<<16;
-}
-
-uint8_t trx_readreg(uint16_t addr)
-{
-	uint8_t txd[3]={0, 0, 0};
-	uint8_t rxd[3]={0, 0, 0};
-
-	set_CS(0);
-	if((addr>>8)==0)
-	{
-		txd[0]=(addr&0xFF)|0x80;
-		txd[1]=0;
-		HAL_SPI_TransmitReceive(&hspi1, txd, rxd, 2, 10);
-		set_CS(1);
-		return rxd[1];
-	}
-	else
-	{
-		txd[0]=((addr>>8)&0xFF)|0x80;
-		txd[1]=addr&0xFF;
-		txd[2]=0;
-		HAL_SPI_TransmitReceive(&hspi1, txd, rxd, 3, 10);
-		set_CS(1);
-		return rxd[2];
-	}
-}
-
-void trx_writereg(uint16_t addr, uint8_t val)
-{
-	uint8_t txd[3]={addr>>8, addr&0xFF, val};
-
-	set_CS(0);
-	if((addr>>8)==0)
-	{
-		txd[0]=addr&0xFF;
-		txd[1]=val;
-		HAL_SPI_Transmit(&hspi1, txd, 2, 10);
-	}
-	else
-	{
-		txd[0]=(addr>>8)&0xFF;
-		txd[1]=addr&0xFF;
-		txd[2]=val;
-		HAL_SPI_Transmit(&hspi1, txd, 3, 10);
-	}
-	set_CS(1);
-}
-
-void trx_writecmd(uint8_t addr)
-{
-	uint8_t txd=addr;
-
-	set_CS(0);
-	HAL_SPI_Transmit(&hspi1, &txd, 1, 10);
-	set_CS(1);
-}
-
-uint8_t read_pn(void)
-{
-	return trx_readreg(0x2F8F);
-}
-
-uint8_t read_status(void)
-{
-	uint8_t txd=STR_SNOP; //no operation strobe
-	uint8_t rxd=0;
-
-	set_CS(0);
-	HAL_SPI_TransmitReceive(&hspi1, &txd, &rxd, 1, 10);
-	set_CS(1);
-
-	return rxd;
-}
-
-void detect_rf_ic(char* out)
-{
-	uint8_t trxid=read_pn();
-
-	if(trxid==0x20)
-		sprintf(out, "CC1200");
-	else if(trxid==0x21)
-		sprintf(out, "CC1201");
-	else
-		sprintf(out, "unknown ID (0x%02X)", trxid);
-}
-
-void config_ic(uint8_t* settings)
-{
-	for(uint8_t i=0; i<CC1200_REG_NUM; i++)
-	{
-		set_CS(0);
-		if(settings[i*3])
-			HAL_SPI_Transmit(&hspi1, &settings[i*3], 3, 10);
-		else
-			HAL_SPI_Transmit(&hspi1, &settings[i*3+1], 2, 10);
-		set_CS(1);
-		//HAL_Delay(10);
-	}
-}
-
-void config_rf(enum mode_t mode, struct trx_data_t trx_data)
-{
-	static uint8_t cc1200_rx_settings[CC1200_REG_NUM*3] =
-	{
-		0x00, 0x01, 0x29, //IOCFG2, GPIO2 - CLKEN_CFM
-		0x00, 0x03, 0x09,
-		0x00, 0x08, 0x1F,
-		0x00, 0x0A, 0xAD, //deviation - a little bit under 3.3kHz full scale
-		0x00, 0x0B, 0x00, //deviation
-		0x00, 0x0C, 0x5D,
-		0x00, 0x0D, 0x00,
-		0x00, 0x0E, 0x8A,
-		0x00, 0x0F, 0xCB,
-		0x00, 0x10, 0xAC, //RX filter BW - 9.5kHz
-		0x00, 0x11, 0x00,
-		0x00, 0x12, 0x45,
-		0x00, 0x13, 0x43, //symbol rate 2 - 1.5k sym/s
-		0x00, 0x14, 0xA9, //symbol rate 1
-		0x00, 0x15, 0x2A, //symbol rate 0
-		0x00, 0x16, 0x37, //AGC_REF - AGC Reference Level Configuration
-		0x00, 0x17, 0xEC,
-		0x00, 0x19, 0x11,
-		0x00, 0x1B, 0x51,
-		0x00, 0x1C, 0x87,
-		0x00, 0x1D, 0x00,
-		0x00, 0x20, 0x14,
-		0x00, 0x26, 0x03,
-		0x00, 0x27, 0x00,
-		0x00, 0x28, 0x20,
-		0x00, 0x2B, 0x03, //output power - 0x03..0x3F (doesn't matter for RX)
-		0x00, 0x2E, 0xFF,
-		0x2F, 0x00, 0x1C,
-		0x2F, 0x01, 0x02, //AFC, 0x22 - on, 0x02 - off
-		0x2F, 0x04, 0x0C, //external oscillator's frequency is 40 MHz
-		0x2F, 0x05, 0x09, //16x upsampler, CFM enable
-		0x2F, 0x0C, 0x57, //frequency - round((float)435000000/5000000*(1<<16))=0x570000
-		0x2F, 0x0D, 0x00, //frequency
-		0x2F, 0x0E, 0x00, //frequency
-		0x2F, 0x10, 0xEE,
-		0x2F, 0x11, 0x10,
-		0x2F, 0x12, 0x07,
-		0x2F, 0x13, 0xAF,
-		0x2F, 0x16, 0x40,
-		0x2F, 0x17, 0x0E,
-		0x2F, 0x19, 0x03,
-		0x2F, 0x1B, 0x33,
-		0x2F, 0x1D, 0x17,
-		0x2F, 0x1F, 0x00,
-		0x2F, 0x20, 0x6E,
-		0x2F, 0x21, 0x1C,
-		0x2F, 0x22, 0xAC,
-		0x2F, 0x27, 0xB5,
-		0x2F, 0x32, 0x0E,
-		0x2F, 0x36, 0x03,
-		0x2F, 0x91, 0x08
-	};
-
-	static uint8_t cc1200_tx_settings[CC1200_REG_NUM*3] =
-	{
-		0x00, 0x01, 0x30, //IOCFG2, GPIO2 - CFM_TX_DATA_CLK (does not work for some reason)
-		0x00, 0x03, 0x09,
-		0x00, 0x08, 0x1F,
-		0x00, 0x0A, 0xAD, //deviation - a little bit under 3.3kHz full scale
-		0x00, 0x0B, 0x00, //deviation
-		0x00, 0x0C, 0x5D,
-		0x00, 0x0D, 0x00,
-		0x00, 0x0E, 0x8A,
-		0x00, 0x0F, 0xCB,
-		0x00, 0x10, 0xAC, //RX filter BW - 9.5kHz (doesn't matter for TX)
-		0x00, 0x11, 0x00,
-		0x00, 0x12, 0x45,
-		0x00, 0x13, 0x43, //symbol rate 2 - 1.5k symb/s
-		0x00, 0x14, 0xA9, //symbol rate 1
-		0x00, 0x15, 0x2A, //symbol rate 0
-		0x00, 0x16, 0x37,
-		0x00, 0x17, 0xEC,
-		0x00, 0x19, 0x11,
-		0x00, 0x1B, 0x51,
-		0x00, 0x1C, 0x87,
-		0x00, 0x1D, 0x00,
-		0x00, 0x20, 0x14,
-		0x00, 0x26, 0x03,
-		0x00, 0x27, 0x00,
-		0x00, 0x28, 0x20,
-		0x00, 0x2B, 0x03, //output power - 0x03..0x3F
-		0x00, 0x2E, 0xFF,
-		0x2F, 0x00, 0x1C,
-		0x2F, 0x01, 0x22,
-		0x2F, 0x04, 0x0C, //external oscillator's frequency is 40 MHz
-		0x2F, 0x05, 0x09, //16x upsampler, CFM enable
-		0x2F, 0x0C, 0x57, //frequency - round((float)435000000/5000000*(1<<16))=0x570000
-		0x2F, 0x0D, 0x00, //frequency
-		0x2F, 0x0E, 0x00, //frequency
-		0x2F, 0x10, 0xEE,
-		0x2F, 0x11, 0x10,
-		0x2F, 0x12, 0x07,
-		0x2F, 0x13, 0xAF,
-		0x2F, 0x16, 0x40,
-		0x2F, 0x17, 0x0E,
-		0x2F, 0x19, 0x03,
-		0x2F, 0x1B, 0x33,
-		0x2F, 0x1D, 0x17,
-		0x2F, 0x1F, 0x00,
-		0x2F, 0x20, 0x6E,
-		0x2F, 0x21, 0x1C,
-		0x2F, 0x22, 0xAC,
-		0x2F, 0x27, 0xB5,
-		0x2F, 0x32, 0x0E,
-		0x2F, 0x36, 0x03,
-		0x2F, 0x91, 0x08
-	};
-
-	uint32_t freq_word;
-	if(mode==MODE_RX)
-		freq_word=roundf((float)trx_data.rx_frequency/5000000.0*((uint32_t)1<<16));
-	else
-		freq_word=roundf((float)trx_data.tx_frequency/5000000.0*((uint32_t)1<<16));
-
-	if(mode==MODE_RX)
-	{
-		//update the frequency setting registers
-		cc1200_rx_settings[32*3-1]=(freq_word>>16)&0xFF;
-		cc1200_rx_settings[33*3-1]=(freq_word>>8)&0xFF;
-		cc1200_rx_settings[34*3-1]=freq_word&0xFF;
-
-		//apply config - RX
-		config_ic(cc1200_rx_settings);
-
-		//overwrite a few registers: carrier sense test
-		trx_writereg(0x0000, 17);			//register 0x0000: IOCFG3, GPIO3 - CARRIER_SENSE
-		trx_writereg(0x0018, 256-97);		//register 0x0018: AGC_GAIN_ADJUST
-		trx_writereg(0x0017, 256-70);		//register 0x0017: AGC_CS_THR
-
-		//apply AFC
-		if(trx_data.afc)
-		{
-			trx_writereg(0x2F01, 0x22);
-		}
-		else
-		{
-			trx_writereg(0x2F01, 0x02);
-		}
-	}
-	else if(mode==MODE_TX)
-	{
-		uint8_t tx_pwr=trx_data.pwr;
-
-		if(tx_pwr>0x3F) tx_pwr=0x3F;
-		if(tx_pwr<0x03) tx_pwr=0x03;
-
-		//update power and frequency registers
-		cc1200_tx_settings[26*3-1]=tx_pwr;
-		cc1200_tx_settings[32*3-1]=(freq_word>>16)&0xFF;
-		cc1200_tx_settings[33*3-1]=(freq_word>>8)&0xFF;
-		cc1200_tx_settings[34*3-1]=freq_word&0xFF;
-
-		//apply config - TX
-		config_ic(cc1200_tx_settings);
-	}
-
-	//frequency correction
-	trx_writereg(0x2F0A, (uint16_t)trx_data.fcorr>>8);
-	trx_writereg(0x2F0B, (uint16_t)trx_data.fcorr&0xFF);
-
-	//disable address autoincrement in burst mode (default - enabled)
-	trx_writereg(0x2F06, 0);
-}
-
 void interface_resp(enum cmd_t cmd, uint8_t resp)
 {
-	uint8_t tmp[3]={cmd, 3, resp};
-	HAL_UART_Transmit_IT(&huart1, tmp, 3);
+	//single-byte response (4 bytes total)
+	uint8_t tmp[4] = {cmd, 4, 0, resp};
+	while(HAL_UART_Transmit_DMA(&huart1, tmp, 4)==HAL_BUSY); //blocking
+}
+
+void dbg_txt(const char *s)
+{
+	//debug text
+	static uint8_t tmp[128];
+	uint16_t len = strlen(s);
+
+	tmp[0] = CMD_DBG_TXT;
+	*(uint16_t*)&tmp[1] = len+3;
+	strcpy((char*)&tmp[3], s);
+	while(HAL_UART_Transmit_DMA(&huart1, tmp, len+3)==HAL_BUSY); //blocking
+}
+
+uint16_t uart_rx_get_head(void)
+{
+    return UART_RX_BUF_SIZE - huart1.hdmarx->Instance->NDTR;
+}
+
+void push_byte(uint8_t *dst_buff, uint8_t inp_byte)
+{
+	static uint8_t buff[UART_RX_BUF_SIZE] = {0};
+
+	//1st byte - CID
+    if (rx_count == 0)
+    {
+    	buff[0] = inp_byte;
+        rx_count = 1;
+        rx_expected = 0;
+        return;
+    }
+
+    //2nd byte - packet length (LSB)
+    if (rx_count == 1)
+    {
+    	buff[1] = inp_byte;
+        rx_count = 2;
+        return;
+    }
+
+    //3rd byte - packet length (MSB)
+    if (rx_count == 2)
+    {
+    	buff[2] = inp_byte;
+    	uint16_t l = *(uint16_t*)&buff[1];
+
+        if (l > sizeof(buff))  //length cannot be larger than the buffer
+        {
+            //invalid length: reset
+            rx_count = 0;
+            rx_expected = 0;
+            return;
+        }
+
+        rx_count = 3;
+        rx_expected = l;  //total expected bytes: cid+len+payload
+
+        if (rx_expected != rx_count)
+        	return;
+    }
+
+    //4th byte and beyond - store payload bytes
+    if (rx_count != rx_expected && rx_count < sizeof(buff))
+    {
+        buff[rx_count++] = inp_byte;
+    }
+
+    //finish work if rx complete
+    if (rx_expected > 0 && rx_count == rx_expected)
+    {
+        //copy to your main rxb[] buffer exactly like old code
+        memcpy(dst_buff, buff, rx_expected);
+
+        //parse the received packet
+        //parse_cmd(dst_buff);
+        char msg[128];
+        sprintf(msg, "[DEBUG] Packet received");
+        dbg_txt(msg);
+
+        //reset state machine
+        rx_count = 0;
+        rx_expected = 0;
+    }
+}
+
+void process_uart_dma(uint16_t *tail)
+{
+    uint16_t head = uart_rx_get_head();
+
+    while (*tail != head)
+    {
+        uint8_t b = uart_rx_buf[*tail];
+
+        (*tail)++;
+        if (*tail >= UART_RX_BUF_SIZE)
+            *tail = 0;
+
+        push_byte(rxb, b);
+    }
+
+    if (*tail == head && htim10.State==HAL_TIM_STATE_READY)
+    {
+    	HAL_TIM_Base_Start_IT(&htim10);
+    }
 }
 
 //interrupts
@@ -400,21 +213,18 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
 	TIM_TypeDef* tim = htim->Instance;
 
-	//USART1 timeout timer
+	//UART data RX timeout (2ms)
 	if(tim==TIM10)
 	{
+		rx_count = 0;
+		rx_expected = 0;
 		HAL_TIM_Base_Stop_IT(&htim10);
-
-		if(interface_comm==COMM_IDLE)
-		{
-			interface_comm=COMM_TOT; //set the TOT flag
-		}
 	}
 
 	//24kHz baseband timer - workaround
 	else if(tim==TIM11)
 	{
-		bsb_rx_pend=1;
+		;
 	}
 }
 
@@ -422,7 +232,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
 	if(GPIO_Pin==TRX_TRIG_Pin)
 	{
-		bsb_tx_pend=1;
+		;
 	}
 	/*else if(GPIO_Pin==TRX_GPIO3_Pin) //carrier sense test
 	{
@@ -435,47 +245,6 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 			SVC_LED_GPIO_Port->BSRR=(uint32_t)SVC_LED_Pin<<16;
 		}
 	}*/
-}
-
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
-{
-	USART_TypeDef* iface = huart->Instance;
-
-	if(iface==USART1)
-	{
-		if(trx_state!=TRX_TX) //normal comms if we are not transmitting at the moment
-		{
-			//check frame's validity
-			if(rxb[1]==rx_bc+1)
-			{
-				HAL_TIM_Base_Stop_IT(&htim10);
-				rx_bc=0;
-				interface_comm=COMM_RDY;
-				return;
-			}
-
-			//handle normal comm conditions and overflow
-			if(rx_bc<sizeof(rxb)) //all normal - proceed
-			{
-				rx_bc++;
-				HAL_UART_Receive_IT(&huart1, (uint8_t*)&rxb[rx_bc], 1);
-				//reset timeout timer
-				TIM10->CNT=0;
-				FIX_TIMER_TRIGGER(&htim10);
-				HAL_TIM_Base_Start_IT(&htim10);
-			}
-			else //overflow
-			{
-				interface_comm=COMM_OVF; //set overflow flag, shouldn't normally happen
-			}
-		}
-		else //pass baseband samples to the buffer
-		{
-			HAL_UART_Receive_IT(&huart1, (uint8_t*)rxb, 1);
-			tx_bsb_buff[tx_bsb_total_cnt%BSB_BUFLEN]=rxb[0];
-			tx_bsb_total_cnt++;
-		}
-	}
 }
 /* USER CODE END 0 */
 
@@ -515,17 +284,15 @@ int main(void)
   MX_TIM10_Init();
   MX_TIM11_Init();
   /* USER CODE BEGIN 2 */
-  //enable FPU
+  //enable FPU if present
   #if (__FPU_PRESENT == 1) && (__FPU_USED == 1)
   SCB->CPACR |= ((3UL << 10*2)|(3UL << 11*2));  /* set CP10 and CP11 Full Access */
   #endif
 
-  set_nRST(1);
-  HAL_Delay(50);
-  set_CS(1);
+  //reset the C1200
   HAL_Delay(100);
-  trx_writecmd(STR_SRES);
-  HAL_Delay(50);
+  trx_reset();
+
   detect_rf_ic(trx_data.name);
 
   /*if(strcmp(trx_data.name, "CC1200")==0)
@@ -539,6 +306,7 @@ int main(void)
 	  }
   }*/
 
+  //default settings
   trx_data.rx_frequency=433475000;			//default
   trx_data.tx_frequency=433475000;			//default
   trx_data.fcorr=0;							//frequency correction (arbitrary units)
@@ -561,14 +329,15 @@ int main(void)
   {
 	  dev_err|=(1UL<<ERR_TRX_PLL);
   }
+
   if(strstr((char*)trx_data.name, "unknown")!=NULL)
   {
   	  dev_err|=(1UL<<ERR_TRX_SPI);
   }
 
   //enable interface comms over UART1
-  //memset((uint8_t*)rxb, 0, sizeof(rxb));
-  HAL_UART_Receive_IT(&huart1, (uint8_t*)rxb, 1);
+  HAL_UART_Receive_DMA(&huart1, uart_rx_buf, UART_RX_BUF_SIZE);
+  FIX_TIMER_TRIGGER(&htim10);
 
   /* USER CODE END 2 */
 
@@ -576,7 +345,9 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while(1)
   {
-	  if(interface_comm==COMM_RDY) //if a valid interface frame is detected
+	  process_uart_dma(&uart_rx_tail);
+
+	  /*if(interface_comm==COMM_RDY) //if a valid interface frame is detected
 	  {
 		  HAL_UART_AbortReceive_IT(&huart1);
 		  HAL_UART_Receive_IT(&huart1, (uint8_t*)rxb, 1);
@@ -667,10 +438,6 @@ int main(void)
 		  			HAL_Delay(10);
 		  			trx_writecmd(STR_STX);
 
-		  			//stop UART timeout timer
-		  			HAL_TIM_Base_Stop_IT(&htim10);
-		  			HAL_UART_AbortReceive_IT(&huart1);
-
 		  			//fill the run-up
 		  			memset((uint8_t*)tx_bsb_buff, 0, BSB_RUNUP);
 		  			tx_bsb_total_cnt=BSB_RUNUP;
@@ -751,29 +518,21 @@ int main(void)
 		  		  HAL_UART_Transmit_IT(&huart1, resp, resp[1]);
 			  break;
 
-		  	  /*case 0x88:
+		  	  case 0x88:
 		  		  resp[0]=0x88;
 		  		  resp[1]=3;
 		  		  resp[2]=trx_readreg(0x2F71); //RSSI
 		  		  HAL_UART_Transmit_IT(&huart1, resp, 3);
-			  break;*/
+			  break;
 
 		  	  default:
 		  		  ;
 		  	  break;
 		  }
-	  }
-	  else if(interface_comm==COMM_TOT || interface_comm==COMM_OVF)
-	  {
-		  HAL_TIM_Base_Stop_IT(&htim10);
-		  HAL_UART_AbortReceive_IT(&huart1);
-		  rx_bc=0;
-		  HAL_UART_Receive_IT(&huart1, (uint8_t*)rxb, 1);
-		  interface_comm=COMM_IDLE;
-	  }
+	  }*/
 
 	  //TX
-	  if(bsb_tx_pend==1)
+	  /*if(bsb_tx_pend==1)
 	  {
 		  //send baseband sample ASAP
 		  HAL_SPI_Transmit_IT(&hspi1, (uint8_t*)&tx_bsb_sample, 1);
@@ -795,19 +554,16 @@ int main(void)
 			  tx_bsb_sample=0;
 			  HAL_GPIO_WritePin(TX_LED_GPIO_Port, TX_LED_Pin, 0);
 		  }
-
-		  bsb_tx_pend=0;
-	  }
+	  }*/
 
 	  //RX
-	  if(bsb_rx_pend==1)
+	  /*if(bsb_rx_pend==1)
 	  {
 		  //fetch baseband sample
 		  uint8_t tmp=0xFF; //whatever
 		  HAL_SPI_TransmitReceive(&hspi1, &tmp, (uint8_t*)&rx_bsb_sample, 1, 2);
 		  HAL_UART_Transmit_IT(&huart1, (uint8_t*)&rx_bsb_sample, 1);
-		  bsb_rx_pend=0;
-	  }
+	  }*/
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
