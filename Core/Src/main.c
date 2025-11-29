@@ -303,7 +303,8 @@ void parse_cmd(const uint8_t *cmd_buff)
 				  }
 				  else
 				  {
-					  interface_resp(cid, (uint8_t*)&dev_err, sizeof(dev_err));
+					  if (dev_err!=ERR_OK)
+	  					  interface_resp(cid, (uint8_t*)&dev_err, sizeof(dev_err));
 				  }*/
 	  		  }
 	  		  else //stop
@@ -664,7 +665,7 @@ int main(void)
 	  if (rx_pend)
 	  {
 		  uint8_t tmp=0xFF; //dummy value for SPI readout
-		  //HAL_SPI_TransmitReceive(&hspi1, &tmp, &bsb_rx[rx_num_wr], 1, 2);
+		  HAL_SPI_TransmitReceive(&hspi1, &tmp, &bsb_rx[rx_num_wr], 1, 2);
 		  rx_num_wr++;
 
 		  //send a chunk of samples when ready
