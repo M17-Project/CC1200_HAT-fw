@@ -77,6 +77,7 @@ uint16_t uart_rx_tail;
 uint8_t bsb_rx[2*BSB_SIZE];									//rx samples
 volatile uint8_t rx_pend;									//pending rx sample read?
 uint16_t rx_num_wr;
+volatile uint8_t tx_pend;									//pending tx sample write?
 
 volatile enum trx_state_t trx_state = TRX_IDLE;				//transmitter state
 
@@ -218,7 +219,7 @@ void parse_cmd(const uint8_t *cmd_buff)
 			{
 				trx_data.pwr = floorf((f_val+18.0f)*2.0f-1.0f);
 				//power setting is now stored in the struct
-				//the change will be applied at next RX->TX switch
+				//the change will be applied at the next RX->TX switch
 				interface_resp_byte(cid, ERR_OK);
 			}
 			else
@@ -260,34 +261,75 @@ void parse_cmd(const uint8_t *cmd_buff)
 	  			break;
 	  		}
 
+	  		//the change will be applied at the next TX->RX switch
 			trx_data.afc = u8_val==0 ? 0 : 1;
 			interface_resp_byte(cid, ERR_OK);
 		break;
 
 	  	  case CMD_TX_START:
-	  		  /*if(trx_state!=TRX_TX && dev_err==ERR_OK)
+	  		  if (pld_len == 1)
 	  		  {
-	  			trx_state=TRX_TX;
-	  			config_rf(MODE_TX, trx_data);
-	  			HAL_Delay(10);
-	  			trx_writecmd(STR_STX);
-
-	  			//fill the run-up
-	  			memset((uint8_t*)tx_bsb_buff, 0, BSB_RUNUP);
-	  			tx_bsb_total_cnt=BSB_RUNUP;
-	  			//initiate baseband SPI transfer to the transmitter
-	  			uint8_t header[2]={0x2F|0x40, 0x7E}; //CFM_TX_DATA_IN, burst access
-	  			set_CS(0); //CS low
-	  			HAL_SPI_Transmit(&hspi1, header, 2, 10); //send 2-byte header
-	  			HAL_UART_Receive_IT(&huart1, (uint8_t*)rxb, 1);
-	  			HAL_NVIC_EnableIRQ(EXTI15_10_IRQn); //enable external baseband sample trigger signal
-	  			HAL_GPIO_WritePin(TX_LED_GPIO_Port, TX_LED_Pin, 1);
-	  			HAL_GPIO_WritePin(RX_LED_GPIO_Port, RX_LED_Pin, 0);
+	  			  memcpy((uint8_t*)&u8_val, pld, 1);
 	  		  }
 	  		  else
 	  		  {
-	  			  interface_resp(CMD_SET_TX_START, dev_err);
-	  		  }*/
+	  			  interface_resp_byte(cid, ERR_CMD_MALFORM);
+	  			  break;
+	  		  }
+
+	  		  if(u8_val) //start
+	  		  {
+				  /*if(trx_state!=TRX_TX && dev_err==ERR_OK)
+				  {
+					  //config CC1200
+					  trx_state=TRX_TX;
+					  trx_config(MODE_TX, trx_data);
+					  HAL_Delay(10);
+
+					  //switch CC1200 to TX
+					  trx_write_cmd(STR_STX);
+
+					  //initiate samples transfer (write)
+					  uint8_t header[2]={0x2F|0x40, 0x7E}; //CFM_TX_DATA_IN, burst access
+					  trx_set_CS(0); //CS low
+					  HAL_SPI_Transmit(&hspi1, header, 2, 10); //send 2-byte header
+
+					  //enable external baseband sample triggering
+					  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
+
+					  //signal TX state with LEDs
+					  HAL_GPIO_WritePin(TX_LED_GPIO_Port, TX_LED_Pin, 1);
+					  HAL_GPIO_WritePin(RX_LED_GPIO_Port, RX_LED_Pin, 0);
+				  }
+				  else
+				  {
+					  interface_resp(cid, (uint8_t*)&dev_err, sizeof(dev_err));
+				  }*/
+	  		  }
+	  		  else //stop
+	  		  {
+				  /*//disable external baseband sample triggering
+				  HAL_NVIC_DisableIRQ(EXTI15_10_IRQn);
+
+				  //finalize samples transfer
+				  trx_set_CS(1); //CS high
+
+			 	  //switch state
+				  trx_state=TRX_IDLE;
+
+				  //config CC1200
+				  trx_config(MODE_RX, trx_data);
+				  HAL_Delay(10);
+
+				  //switch CC1200 to RX state
+				  trx_write_cmd(STR_SRX);
+
+				  //
+				  HAL_GPIO_WritePin(TX_LED_GPIO_Port, TX_LED_Pin, 0);
+
+	  			  //reply
+	  			  interface_resp_byte(cid, ERR_OK);*/
+	  		  }
 		  break;
 
 	  	  case CMD_RX_START:
@@ -318,7 +360,7 @@ void parse_cmd(const uint8_t *cmd_buff)
 	  				  trx_write_cmd(STR_SRX);
 	  				  trx_state=TRX_RX;
 
-	  				  //init sample transfer
+	  				  //initiate samples transfer (readout)
 	  				  uint8_t header[2] = {0x2F|0xC0, 0x7D};	//CFM_RX_DATA_OUT, burst access
 	  				  trx_set_CS(0);							//CS low
 	  				  HAL_SPI_Transmit(&hspi1, header, 2, 10);	//send 2-byte header
@@ -328,7 +370,7 @@ void parse_cmd(const uint8_t *cmd_buff)
 	  				  TIM11->CNT = 0;
 	  				  HAL_TIM_Base_Start_IT(&htim11);
 
-	  				  //signal RX with LEDs
+	  				  //signal RX state with LEDs
 	  				  HAL_GPIO_WritePin(RX_LED_GPIO_Port, RX_LED_Pin, 1);
 	  				  HAL_GPIO_WritePin(TX_LED_GPIO_Port, TX_LED_Pin, 0);
 	  			  }
@@ -342,9 +384,17 @@ void parse_cmd(const uint8_t *cmd_buff)
 	  		  {
 	  			  //disable read baseband trigger signal
 	  			  HAL_TIM_Base_Stop_IT(&htim11);
+
+	  			  //finalize SPI samples transfer
 	  			  trx_set_CS(1);
+
+	  			  //switch device state
 	  			  trx_state = TRX_IDLE;
+
+	  			  //turn off the RX LED
 	  			  HAL_GPIO_WritePin(RX_LED_GPIO_Port, RX_LED_Pin, 0);
+
+	  			  //reply
 	  			  interface_resp_byte(cid, ERR_OK); //OK
 	  		  }
 		  break;
@@ -352,6 +402,29 @@ void parse_cmd(const uint8_t *cmd_buff)
 	  	  case CMD_GET_IDENT:
 			  //reply with the device's IDENT string
 			  interface_resp(cid, (uint8_t*)IDENT_STR, strlen(IDENT_STR));
+		  break;
+
+	  	  case CMD_GET_CAPS:
+			  //so far, the CC1200-HAT can do FM only, half-duplex
+			  interface_resp_byte(cid, 0x02);
+		  break;
+
+	  	  case CMD_GET_RX_FREQ:
+	  		  interface_resp(cid, (uint8_t*)&trx_data.rx_frequency, sizeof(uint32_t));
+		  break;
+
+	  	  case CMD_GET_TX_FREQ:
+	  		  interface_resp(cid, (uint8_t*)&trx_data.tx_frequency, sizeof(uint32_t));
+		  break;
+
+	  	  case CMD_GET_BSB_BUFF:
+	  		  //TODO: put some working code here
+	  		  interface_resp_byte(cid, 0);
+	  	  break;
+
+	  	  case CMD_GET_RSSI:
+	  		  u8_val = trx_read_reg(0x2F71); //RSSI
+	  		  interface_resp_byte(cid, u8_val);
 		  break;
 	}
 }
@@ -470,7 +543,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
 	if(GPIO_Pin==TRX_TRIG_Pin)
 	{
-		;
+		tx_pend = 1;
 	}
 	/*else if(GPIO_Pin==TRX_GPIO3_Pin) //carrier sense test
 	{
@@ -591,7 +664,7 @@ int main(void)
 	  if (rx_pend)
 	  {
 		  uint8_t tmp=0xFF; //dummy value for SPI readout
-		  HAL_SPI_TransmitReceive(&hspi1, &tmp, &bsb_rx[rx_num_wr], 1, 2);
+		  //HAL_SPI_TransmitReceive(&hspi1, &tmp, &bsb_rx[rx_num_wr], 1, 2);
 		  rx_num_wr++;
 
 		  //send a chunk of samples when ready
