@@ -65,13 +65,13 @@ PCD_HandleTypeDef hpcd_USB_OTG_FS;
 
 /* USER CODE BEGIN PV */
 //device config
-trx_data_t trx_data;
+trx_data_t trx_data;										//CC1200 config
 
 //device state
-uint32_t dev_err = ERR_OK;	//default state - no error
+uint32_t dev_err = ERR_OK;									//default state - no error
 
 //buffers and interface stuff
-uint8_t uart_rx_buf[UART_LONG_BUF_SIZE];			//DMA UART RX buffer
+uint8_t uart_rx_buf[UART_LONG_BUF_SIZE];					//DMA UART RX buffer
 uint8_t rxb[UART_LONG_BUF_SIZE];							//packet data UART RX buffer
 volatile uint16_t rx_count;
 volatile uint16_t rx_expected;
@@ -83,7 +83,7 @@ typedef struct												//TX queue - short packets
 	uint16_t len;
 } txq_queue_t;
 
-txq_queue_t txq[SHORT_TXQ_SIZE];					//TX queue - short packets
+txq_queue_t txq[SHORT_TXQ_SIZE];							//TX queue - short packets
 
 volatile uint8_t txq_head;
 volatile uint8_t txq_tail;
@@ -95,7 +95,7 @@ typedef struct												//TX queue - long packets
     uint16_t len;
 } bsbq_queue_t;
 
-bsbq_queue_t bsbq[LONG_TXQ_SIZE];					//TX queue - long packets
+bsbq_queue_t bsbq[LONG_TXQ_SIZE];							//TX queue - long packets
 
 volatile uint8_t bsbq_head;
 volatile uint8_t bsbq_tail;

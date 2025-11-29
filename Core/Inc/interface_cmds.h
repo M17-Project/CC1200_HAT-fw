@@ -1,10 +1,3 @@
-/*
- * interface_cmds.h
- *
- *  Created on: Dec 27, 2023
- *      Author: SP5WWP
- */
-
 #ifndef INC_INTERFACE_CMDS_H_
 #define INC_INTERFACE_CMDS_H_
 
