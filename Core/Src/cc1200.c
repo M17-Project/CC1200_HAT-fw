@@ -295,13 +295,13 @@ void trx_reset(void)
 	HAL_Delay(50);
 }
 
-void trx_set_freq(float freq)
+void trx_set_freq(uint32_t freq)
 {
 	trx_write_cmd(STR_IDLE);
 	HAL_Delay(10);
 
 	//reconfig TRX
-	uint32_t freq_word = roundf((float)freq/5000000.0*((uint32_t)1<<16));
+	uint32_t freq_word = roundf((float)freq/5000000.0f*((uint32_t)1<<16));
 	trx_write_reg(0x2F0C, (freq_word>>16)&0xFF);
 	trx_write_reg(0x2F0D, (freq_word>>8)&0xFF);
 	trx_write_reg(0x2F0E, freq_word&0xFF);

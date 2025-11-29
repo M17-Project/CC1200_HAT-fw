@@ -34,6 +34,6 @@ void trx_reg_init(uint8_t* settings);
 void trx_config(enum mode_t mode, trx_data_t trx_data);
 void trx_reset(void);
 
-void trx_set_freq(float freq);
+void trx_set_freq(uint32_t freq);
 
 #endif /* INC_CC1200_H_ */

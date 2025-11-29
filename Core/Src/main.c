@@ -38,9 +38,12 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define IDENT_STR		"CC1200-HAT 420-450 MHz\nFW v2.0 by Wojciech SP5WWP"
-#define UART_BUF_SIZE	1024					//buffer length for UART
-#define BSB_SIZE		960						//size of baseband chunks
+#define IDENT_STR				"CC1200-HAT 420-450 MHz\nFW v2.0 by Wojciech SP5WWP"
+#define UART_LONG_BUF_SIZE		1024				//buffer length for UART (baseband transfers)
+#define UART_SHORT_BUF_SIZE		128					//buffer length for UART
+#define SHORT_TXQ_SIZE			8					//TX queue length (short messages)
+#define LONG_TXQ_SIZE   		2					//TX queue length (baseband transfers)
+#define BSB_SIZE				960					//size of baseband chunks
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -68,11 +71,35 @@ trx_data_t trx_data;
 uint32_t dev_err = ERR_OK;	//default state - no error
 
 //buffers and interface stuff
-volatile uint8_t uart_rx_buf[UART_BUF_SIZE];				//DMA UART RX buffer
-uint8_t rxb[UART_BUF_SIZE];									//packet data UART RX buffer
+uint8_t uart_rx_buf[UART_LONG_BUF_SIZE];			//DMA UART RX buffer
+uint8_t rxb[UART_LONG_BUF_SIZE];							//packet data UART RX buffer
 volatile uint16_t rx_count;
 volatile uint16_t rx_expected;
-uint16_t uart_rx_tail;
+uint16_t uart_rx_tail;										//for the UART RX ring buffer
+
+typedef struct												//TX queue - short packets
+{
+	uint8_t  data[UART_SHORT_BUF_SIZE];
+	uint16_t len;
+} txq_queue_t;
+
+txq_queue_t txq[SHORT_TXQ_SIZE];					//TX queue - short packets
+
+volatile uint8_t txq_head;
+volatile uint8_t txq_tail;
+volatile uint8_t txq_busy;   								//ongoing DMA transfer?
+
+typedef struct												//TX queue - long packets
+{
+    uint8_t data[UART_LONG_BUF_SIZE];
+    uint16_t len;
+} bsbq_queue_t;
+
+bsbq_queue_t bsbq[LONG_TXQ_SIZE];					//TX queue - long packets
+
+volatile uint8_t bsbq_head;
+volatile uint8_t bsbq_tail;
+volatile uint8_t bsbq_busy;
 
 uint8_t bsb_rx[2*BSB_SIZE];									//rx samples
 volatile uint8_t rx_pend;									//pending rx sample read?
@@ -83,6 +110,7 @@ volatile enum trx_state_t trx_state = TRX_IDLE;				//transmitter state
 
 //misc
 uint8_t dbg_enabled = 0;									//debug strings enabled?
+char dbg_msg[128];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -105,48 +133,89 @@ void set_uart_timeout(uint8_t ms)
 	TIM10->ARR = (uint32_t)ms*10 - 1;
 }
 
-void interface_resp(enum cmd_t cmd, const uint8_t *resp, uint16_t pld_len)
+void interface_resp_short(enum cmd_t cid, const uint8_t *resp, uint16_t pld_len)
 {
-	//single-byte response (4 bytes total)
-	static uint8_t tmp[UART_BUF_SIZE];
-	tmp[0] = cmd;
-	*(uint16_t*)&tmp[1] = pld_len+3;
-	if (resp != NULL)
-		memcpy(&tmp[3], resp, pld_len);
+	uint16_t len = pld_len+3;
 
-	while(HAL_UART_Transmit_DMA(&huart1, tmp, pld_len+3)==HAL_BUSY); //blocking
+	//drop oversized
+    if (len > UART_SHORT_BUF_SIZE)
+    	return;
+
+    //next queue entry
+    uint8_t next = (txq_head+1) % SHORT_TXQ_SIZE;
+
+    //queue full, drop packet
+    if (next == txq_tail)
+    	return;
+
+    txq[txq_head].data[0] = cid;
+    memcpy(&txq[txq_head].data[1], (uint8_t*)&len, sizeof(uint16_t));
+    memcpy(&txq[txq_head].data[3], resp, pld_len);
+    txq[txq_head].len = len;
+    txq_head = next;
+
+    //if UART TX is idle, start transmission
+    if (!txq_busy && !bsbq_busy)
+    {
+        txq_busy = 1;
+        HAL_UART_Transmit_DMA(&huart1, txq[txq_tail].data, txq[txq_tail].len);
+    }
+}
+
+void interface_resp_long(enum cmd_t cid, const uint8_t *resp, uint16_t pld_len)
+{
+	uint16_t len = pld_len+3;
+
+	//drop oversized
+    if (len > UART_LONG_BUF_SIZE)
+    	return;
+
+    //next queue entry
+    uint8_t next = (bsbq_head+1) % LONG_TXQ_SIZE;
+
+    //queue full, drop packet
+    if (next == bsbq_tail)
+    	return;
+
+    bsbq[bsbq_head].data[0] = cid;
+    memcpy(&bsbq[bsbq_head].data[1], (uint8_t*)&len, sizeof(uint16_t));
+    memcpy(&bsbq[bsbq_head].data[3], resp, pld_len);
+    bsbq[bsbq_head].len = len;
+    bsbq_head = next;
+
+    //if UART TX is idle, start transmission
+    if (!txq_busy && !bsbq_busy)
+    {
+    	bsbq_busy = 1;
+        HAL_UART_Transmit_DMA(&huart1, bsbq[bsbq_tail].data, bsbq[bsbq_tail].len);
+    }
 }
 
 void interface_resp_byte(enum cmd_t cmd, uint8_t resp)
 {
-	interface_resp(cmd, &resp, 1);
+	//single-byte response (4 bytes total)
+	interface_resp_short(cmd, &resp, 1);
 }
 
 void dbg_txt(const char *s)
 {
-	//debug text
-	static uint8_t tmp[128];
-	uint16_t len = strlen(s);
-
-	tmp[0] = CMD_DBG_TXT;
-	*(uint16_t*)&tmp[1] = len+3;
-	strcpy((char*)&tmp[3], s);
-
-	while(HAL_UART_Transmit_DMA(&huart1, tmp, len+3)==HAL_BUSY); //blocking
+	//send short text messages for debugging
+	interface_resp_short(CMD_DBG_TXT, (uint8_t*)s, strlen(s));
 }
 
 void parse_cmd(const uint8_t *cmd_buff)
 {
-    char dbg_msg[128];
 	uint8_t cid = cmd_buff[0];
-	int16_t pld_len = *(uint16_t*)&cmd_buff[1] - 3;
-	uint8_t *pld = &cmd_buff[3];
+	int16_t pld_len; memcpy((uint8_t*)&pld_len, &cmd_buff[1], sizeof(pld_len)); pld_len-=3;
+	const uint8_t *pld = &cmd_buff[3];
 
 	float f_val;
 	int8_t i8_val;
 	uint8_t u8_val;
 	int16_t i16_val;
-	uint16_t u16_val;
+	//uint16_t u16_val;
+	//int32_t i32_val;
+	uint32_t u32_val;
 
 	/*sprintf(dbg_msg, "CMD%d LEN%d", cid, pld_len);
 	dbg_txt(dbg_msg);*/
@@ -154,13 +223,13 @@ void parse_cmd(const uint8_t *cmd_buff)
 	switch (cid)
 	{
 		case CMD_PING:
-			interface_resp(cid, (uint8_t*)&dev_err, sizeof(dev_err));
+			interface_resp_short(cid, (uint8_t*)&dev_err, sizeof(dev_err));
 		break;
 
 		case CMD_SET_RX_FREQ:
-			if (pld_len == sizeof(float))
+			if (pld_len == sizeof(uint32_t))
 			{
-				memcpy((uint8_t*)&f_val, pld, sizeof(float));
+				memcpy((uint8_t*)&u32_val, pld, sizeof(uint32_t));
 			}
 			else
 			{
@@ -168,10 +237,10 @@ void parse_cmd(const uint8_t *cmd_buff)
 				break;
 			}
 
-			if(f_val>=420e6 && f_val<=450e6)
+			if(u32_val>=420e6 && u32_val<=450e6)
 			{
-				trx_data.rx_frequency = f_val;
-				trx_set_freq(f_val);
+				trx_data.rx_frequency = u32_val;
+				trx_set_freq(u32_val);
 				interface_resp_byte(cid, ERR_OK);
 			}
 			else
@@ -181,9 +250,9 @@ void parse_cmd(const uint8_t *cmd_buff)
 		break;
 
 		case CMD_SET_TX_FREQ:
-			if (pld_len == sizeof(float))
+			if (pld_len == sizeof(uint32_t))
 			{
-				memcpy((uint8_t*)&f_val, pld, sizeof(float));
+				memcpy((uint8_t*)&u32_val, pld, sizeof(uint32_t));
 			}
 			else
 			{
@@ -191,10 +260,10 @@ void parse_cmd(const uint8_t *cmd_buff)
 				break;
 			}
 
-			if(f_val>=420e6 && f_val<=450e6)
+			if(u32_val>=420e6 && u32_val<=450e6)
 			{
-				trx_data.tx_frequency = f_val;
-				trx_set_freq(f_val);
+				trx_data.tx_frequency = u32_val;
+				trx_set_freq(u32_val);
 				interface_resp_byte(cid, ERR_OK);
 			}
 			else
@@ -214,7 +283,7 @@ void parse_cmd(const uint8_t *cmd_buff)
 				break;
 			}
 
-			float f_val = i8_val*0.25f; //convert TX power to dBm
+			f_val = i8_val*0.25f; //convert TX power to dBm
 			if(f_val>=-16.0f && f_val<=14.0) //-16 to 14 dBm (raw values of 0x03 to 0x3F)
 			{
 				trx_data.pwr = floorf((f_val+18.0f)*2.0f-1.0f);
@@ -304,7 +373,7 @@ void parse_cmd(const uint8_t *cmd_buff)
 				  else
 				  {
 					  if (dev_err!=ERR_OK)
-	  					  interface_resp(cid, (uint8_t*)&dev_err, sizeof(dev_err));
+	  					  interface_resp_short(cid, (uint8_t*)&dev_err, sizeof(dev_err));
 				  }*/
 	  		  }
 	  		  else //stop
@@ -378,7 +447,7 @@ void parse_cmd(const uint8_t *cmd_buff)
 	  			  else
 	  			  {
 	  				  if (dev_err!=ERR_OK)
-	  					  interface_resp(cid, (uint8_t*)&dev_err, sizeof(dev_err));
+	  					  interface_resp_short(cid, (uint8_t*)&dev_err, sizeof(dev_err));
 	  			  }
 	  		  }
 	  		  else //stop
@@ -402,7 +471,7 @@ void parse_cmd(const uint8_t *cmd_buff)
 
 	  	  case CMD_GET_IDENT:
 			  //reply with the device's IDENT string
-			  interface_resp(cid, (uint8_t*)IDENT_STR, strlen(IDENT_STR));
+			  interface_resp_short(cid, (uint8_t*)IDENT_STR, strlen(IDENT_STR));
 		  break;
 
 	  	  case CMD_GET_CAPS:
@@ -411,11 +480,11 @@ void parse_cmd(const uint8_t *cmd_buff)
 		  break;
 
 	  	  case CMD_GET_RX_FREQ:
-	  		  interface_resp(cid, (uint8_t*)&trx_data.rx_frequency, sizeof(uint32_t));
+	  		  interface_resp_short(cid, (uint8_t*)&trx_data.rx_frequency, sizeof(uint32_t));
 		  break;
 
 	  	  case CMD_GET_TX_FREQ:
-	  		  interface_resp(cid, (uint8_t*)&trx_data.tx_frequency, sizeof(uint32_t));
+	  		  interface_resp_short(cid, (uint8_t*)&trx_data.tx_frequency, sizeof(uint32_t));
 		  break;
 
 	  	  case CMD_GET_BSB_BUFF:
@@ -432,12 +501,12 @@ void parse_cmd(const uint8_t *cmd_buff)
 
 uint16_t uart_rx_get_head(void)
 {
-    return UART_BUF_SIZE - huart1.hdmarx->Instance->NDTR;
+    return UART_LONG_BUF_SIZE - huart1.hdmarx->Instance->NDTR;
 }
 
 void push_byte(uint8_t *dst_buff, uint8_t inp_byte)
 {
-	static uint8_t buff[UART_BUF_SIZE] = {0};
+	static uint8_t buff[UART_LONG_BUF_SIZE] = {0};
 
 	//1st byte - CID
     if (rx_count == 0)
@@ -460,7 +529,9 @@ void push_byte(uint8_t *dst_buff, uint8_t inp_byte)
     if (rx_count == 2)
     {
     	buff[2] = inp_byte;
-    	uint16_t l = *(uint16_t*)&buff[1];
+    	uint16_t l;
+
+    	memcpy((uint8_t*)&l, &buff[1], sizeof(l));
 
         if (l > sizeof(buff))  //length cannot be larger than the buffer
         {
@@ -507,7 +578,7 @@ void process_uart_dma(uint16_t *tail)
         uint8_t b = uart_rx_buf[*tail];
 
         (*tail)++;
-        if (*tail >= UART_BUF_SIZE)
+        if (*tail >= UART_LONG_BUF_SIZE)
             *tail = 0;
 
         push_byte(rxb, b);
@@ -546,6 +617,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 	{
 		tx_pend = 1;
 	}
+
 	/*else if(GPIO_Pin==TRX_GPIO3_Pin) //carrier sense test
 	{
 		if(TRX_GPIO3_GPIO_Port->IDR&(1U<<14))
@@ -557,6 +629,59 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 			SVC_LED_GPIO_Port->BSRR=(uint32_t)SVC_LED_Pin<<16;
 		}
 	}*/
+}
+
+void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
+{
+    if (huart == &huart1)
+    {
+    	if (bsbq_busy)
+    	{
+    		bsbq_tail = (bsbq_tail+1) % LONG_TXQ_SIZE;
+
+			//any more messages pending?
+			if (bsbq_tail != bsbq_head)
+			{
+				HAL_UART_Transmit_DMA(huart, bsbq[bsbq_tail].data, bsbq[bsbq_tail].len);
+			}
+			else //TX queue is empty
+			{
+				bsbq_busy = 0;
+			}
+    	}
+
+    	else if (txq_busy)
+    	{
+			txq_tail = (txq_tail+1) % SHORT_TXQ_SIZE;
+
+			//any more messages pending?
+			if (txq_tail != txq_head)
+			{
+				HAL_UART_Transmit_DMA(huart, txq[txq_tail].data, txq[txq_tail].len);
+			}
+			else //TX queue is empty
+			{
+				txq_busy = 0;
+			}
+    	}
+
+    	//continue the transmission if there's data in the other queue
+        if (!bsbq_busy && bsbq_tail != bsbq_head)
+        {
+            //start next long packet
+            bsbq_busy = 1;
+            HAL_UART_Transmit_DMA(&huart1, bsbq[bsbq_tail].data, bsbq[bsbq_tail].len);
+            return;
+        }
+
+        if (!txq_busy && txq_tail != txq_head)
+        {
+            //start next short packet
+            txq_busy = 1;
+            HAL_UART_Transmit_DMA(&huart1, txq[txq_tail].data, txq[txq_tail].len);
+            return;
+        }
+    }
 }
 /* USER CODE END 0 */
 
@@ -650,7 +775,7 @@ int main(void)
   }
 
   //enable interface comms over UART1
-  HAL_UART_Receive_DMA(&huart1, uart_rx_buf, UART_BUF_SIZE);
+  HAL_UART_Receive_DMA(&huart1, uart_rx_buf, UART_LONG_BUF_SIZE);
   FIX_TIMER_TRIGGER(&htim10);
 
   /* USER CODE END 2 */
@@ -671,11 +796,11 @@ int main(void)
 		  //send a chunk of samples when ready
 		  if (rx_num_wr == BSB_SIZE)
 		  {
-			  while(HAL_UART_Transmit_DMA(&huart1, &bsb_rx[0], BSB_SIZE)==HAL_BUSY);
+			  interface_resp_long(CMD_RX_DATA, &bsb_rx[0], BSB_SIZE);
 		  }
 		  else if (rx_num_wr == 2*BSB_SIZE)
 		  {
-			  while(HAL_UART_Transmit_DMA(&huart1, &bsb_rx[BSB_SIZE], BSB_SIZE)==HAL_BUSY);
+			  interface_resp_long(CMD_RX_DATA, &bsb_rx[BSB_SIZE], BSB_SIZE);
 		  }
 
 		  rx_num_wr %= 2*BSB_SIZE;
