@@ -40,6 +40,7 @@
 /* USER CODE BEGIN PD */
 #define IDENT_STR		"CC1200-HAT 420-450 MHz\nFW v2.0 by Wojciech SP5WWP"
 #define UART_BUF_SIZE	1024					//buffer length for UART
+#define BSB_SIZE		960						//size of baseband chunks
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -73,6 +74,10 @@ volatile uint16_t rx_count;
 volatile uint16_t rx_expected;
 uint16_t uart_rx_tail;
 
+uint8_t bsb_rx[2*BSB_SIZE];									//rx samples
+volatile uint8_t rx_pend;									//pending rx sample read?
+uint16_t rx_num_wr;
+
 volatile enum trx_state_t trx_state = TRX_IDLE;				//transmitter state
 
 //misc
@@ -94,6 +99,11 @@ static void MX_TIM11_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+void set_uart_timeout(uint8_t ms)
+{
+	TIM10->ARR = (uint32_t)ms*10 - 1;
+}
+
 void interface_resp(enum cmd_t cmd, const uint8_t *resp, uint16_t pld_len)
 {
 	//single-byte response (4 bytes total)
@@ -281,38 +291,62 @@ void parse_cmd(const uint8_t *cmd_buff)
 		  break;
 
 	  	  case CMD_RX_START:
-	  		  /*if(rxb[2]) //start
+	  		  if (pld_len == 1)
+	  		  {
+	  			  memcpy((uint8_t*)&u8_val, pld, 1);
+	  		  }
+	  		  else
+	  		  {
+	  			  interface_resp_byte(cid, ERR_CMD_MALFORM);
+	  			  break;
+	  		  }
+
+	  		  if(u8_val) //start
 	  		  {
 	  			  if(trx_state!=TRX_RX && dev_err==ERR_OK)
 	  			  {
-	  				  config_rf(MODE_RX, trx_data);
+	  				  //reset buffers
+	  				  memset(bsb_rx, 0, sizeof(bsb_rx));
+	  				  rx_pend = 0;
+	  				  rx_num_wr = 0;
+
+	  				  //config CC1200
+	  				  trx_config(MODE_RX, trx_data);
 	  				  HAL_Delay(10);
-	  				  trx_writecmd(STR_SRX);
+
+	  				  //switch CC1200 to RX
+	  				  trx_write_cmd(STR_SRX);
 	  				  trx_state=TRX_RX;
-	  				  uint8_t header[2]={0x2F|0xC0, 0x7D}; //CFM_RX_DATA_OUT, burst access
-	  				  set_CS(0); //CS low
-	  				  HAL_SPI_Transmit(&hspi1, header, 2, 10); //send 2-byte header
+
+	  				  //init sample transfer
+	  				  uint8_t header[2] = {0x2F|0xC0, 0x7D};	//CFM_RX_DATA_OUT, burst access
+	  				  trx_set_CS(0);							//CS low
+	  				  HAL_SPI_Transmit(&hspi1, header, 2, 10);	//send 2-byte header
+
 	  				  //for some reason, the external signal runs at 75.7582kHz instead of expected 24kHz
 	  				  FIX_TIMER_TRIGGER(&htim11);
-	  				  TIM11->CNT=0;
+	  				  TIM11->CNT = 0;
 	  				  HAL_TIM_Base_Start_IT(&htim11);
+
+	  				  //signal RX with LEDs
 	  				  HAL_GPIO_WritePin(RX_LED_GPIO_Port, RX_LED_Pin, 1);
 	  				  HAL_GPIO_WritePin(TX_LED_GPIO_Port, TX_LED_Pin, 0);
 	  			  }
 	  			  else
 	  			  {
-	  				  interface_resp(CMD_SET_RX, dev_err);
+	  				  if (dev_err!=ERR_OK)
+	  					  interface_resp(cid, (uint8_t*)&dev_err, sizeof(dev_err));
 	  			  }
 	  		  }
 	  		  else //stop
 	  		  {
 	  			  //disable read baseband trigger signal
 	  			  HAL_TIM_Base_Stop_IT(&htim11);
-	  			  set_CS(1);
-	  			  trx_state=TRX_IDLE;
+	  			  trx_set_CS(1);
+	  			  trx_state = TRX_IDLE;
 	  			  HAL_GPIO_WritePin(RX_LED_GPIO_Port, RX_LED_Pin, 0);
-	  			  interface_resp(CMD_SET_RX, ERR_OK); //OK
-	  		  }*/
+	  			  interface_resp_byte(cid, ERR_OK); //OK
+	  		  }
 		  break;
 
 	  	  case CMD_GET_IDENT:
@@ -417,7 +451,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
 	TIM_TypeDef* tim = htim->Instance;
 
-	//UART data RX timeout (2ms)
+	//UART data RX timeout
 	if(tim==TIM10)
 	{
 		rx_count = 0;
@@ -428,7 +462,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 	//24kHz baseband timer - workaround
 	else if(tim==TIM11)
 	{
-		;
+		rx_pend = 1;
 	}
 }
 
@@ -493,6 +527,9 @@ int main(void)
   SCB->CPACR |= ((3UL << 10*2)|(3UL << 11*2));  /* set CP10 and CP11 Full Access */
   #endif
 
+  //set UART timeout
+  set_uart_timeout(2); //2ms
+
   //reset the C1200
   HAL_Delay(100);
   trx_reset();
@@ -548,7 +585,28 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while(1)
   {
+	  //handle incoming data over UART
 	  process_uart_dma(&uart_rx_tail);
+
+	  if (rx_pend)
+	  {
+		  uint8_t tmp=0xFF; //dummy value for SPI readout
+		  HAL_SPI_TransmitReceive(&hspi1, &tmp, &bsb_rx[rx_num_wr], 1, 2);
+		  rx_num_wr++;
+
+		  //send a chunk of samples when ready
+		  if (rx_num_wr == BSB_SIZE)
+		  {
+			  while(HAL_UART_Transmit_DMA(&huart1, &bsb_rx[0], BSB_SIZE)==HAL_BUSY);
+		  }
+		  else if (rx_num_wr == 2*BSB_SIZE)
+		  {
+			  while(HAL_UART_Transmit_DMA(&huart1, &bsb_rx[BSB_SIZE], BSB_SIZE)==HAL_BUSY);
+		  }
+
+		  rx_num_wr %= 2*BSB_SIZE;
+		  rx_pend = 0;
+	  }
 
 	  /*if(interface_comm==COMM_RDY) //if a valid interface frame is detected
 	  {
