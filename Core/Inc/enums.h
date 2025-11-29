@@ -37,7 +37,8 @@ enum err_t
 	ERR_OK,					//all good
 	ERR_TRX_PLL,			//TRX PLL lock error
 	ERR_TRX_SPI,			//TRX SPI comms error
-	ERR_RANGE				//value out of range
+	ERR_RANGE,				//value out of range
+	ERR_CMD_MALFORM			//malformed command
 };
 
 //internal TRX state, as per p. 8 of the datasheet

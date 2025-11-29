@@ -22,16 +22,18 @@ typedef struct
 	uint8_t afc;			//AFC on/off
 } trx_data_t;
 
-void set_nRST(uint8_t state);
-void set_CS(uint8_t state);
-uint8_t trx_readreg(uint16_t addr);
-void trx_writereg(uint16_t addr, uint8_t val);
-void trx_writecmd(uint8_t addr);
-uint8_t read_pn(void);
-uint8_t read_status(void);
-void detect_rf_ic(char* out);
-void config_ic(uint8_t* settings);
-void config_rf(enum mode_t mode, trx_data_t trx_data);
+void trx_set_nRST(uint8_t state);
+void trx_set_CS(uint8_t state);
+uint8_t trx_read_reg(uint16_t addr);
+void trx_write_reg(uint16_t addr, uint8_t val);
+void trx_write_cmd(uint8_t addr);
+uint8_t trx_read_pn(void);
+uint8_t trx_read_status(void);
+void trx_detect(char* out);
+void trx_reg_init(uint8_t* settings);
+void trx_config(enum mode_t mode, trx_data_t trx_data);
 void trx_reset(void);
+
+void trx_set_freq(float freq);
 
 #endif /* INC_CC1200_H_ */
