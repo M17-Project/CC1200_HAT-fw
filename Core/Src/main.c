@@ -64,6 +64,9 @@ DMA_HandleTypeDef hdma_usart1_tx;
 PCD_HandleTypeDef hpcd_USB_OTG_FS;
 
 /* USER CODE BEGIN PV */
+//main loop counter
+uint32_t rev_cnt;
+
 //device config
 trx_data_t trx_data;										//CC1200 config
 
@@ -469,6 +472,11 @@ void parse_cmd(const uint8_t *cmd_buff)
 	  		  }
 		  break;
 
+	  	  case CMD_TX_DATA:
+	  		  //TODO: add a real data handler here
+	  		  interface_resp_byte(cid, ERR_OK);
+	  	  break;
+
 	  	  case CMD_GET_IDENT:
 			  //reply with the device's IDENT string
 			  interface_resp_short(cid, (uint8_t*)IDENT_STR, strlen(IDENT_STR));
@@ -784,6 +792,19 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while(1)
   {
+	  //main loop "revolution" counter
+	  rev_cnt++;
+
+	  if (rev_cnt%3900000UL == 0)
+	  {
+		  HAL_GPIO_WritePin(SVC_LED_GPIO_Port, SVC_LED_Pin, 1);
+	  }
+	  else if (rev_cnt%4000000UL == 0)
+	  {
+		  HAL_GPIO_WritePin(SVC_LED_GPIO_Port, SVC_LED_Pin, 0);
+		  rev_cnt = 0;
+	  }
+
 	  //handle incoming data over UART
 	  process_uart_dma(&uart_rx_tail);
 
