@@ -484,7 +484,7 @@ void parse_cmd(const uint8_t *cmd_buff)
 
 	  	  case CMD_TX_DATA:
 	  		  //TODO: add a real data handler here
-	  		  if (trx_state==TRX_TX)
+	  		  if (trx_state==TRX_TX && pld_len==960)
 	  			  interface_resp_byte(cid, ERR_OK);
 	  	  break;
 
@@ -601,12 +601,10 @@ void process_uart_dma(uint16_t *tail)
             *tail = 0;
 
         push_byte(rxb, b);
-    }
 
-    if (*tail == head && htim10.State==HAL_TIM_STATE_READY)
-    {
-    	TIM10->CNT = 0;
-    	HAL_TIM_Base_Start_IT(&htim10);
+        TIM10->CNT = 0;
+        if (htim10.State != HAL_TIM_STATE_BUSY)
+            HAL_TIM_Base_Start_IT(&htim10);
     }
 }
 
