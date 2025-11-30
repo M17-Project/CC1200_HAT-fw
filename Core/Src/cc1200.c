@@ -119,7 +119,7 @@ void trx_config(enum mode_t mode, trx_data_t trx_data)
 {
 	static uint8_t cc1200_rx_settings[CC1200_REG_NUM*3] =
 	{
-		0x00, 0x01, 0x29, //IOCFG2, GPIO2 - CLKEN_CFM
+		0x00, 0x01, 0x08, //IOCFG2, GPIO2 - CLKEN_CFM (does not work for some reason)
 		0x00, 0x03, 0x09,
 		0x00, 0x08, 0x1F,
 		0x00, 0x0A, 0xAD, //deviation - a little bit under 3.3kHz full scale
@@ -174,7 +174,7 @@ void trx_config(enum mode_t mode, trx_data_t trx_data)
 
 	static uint8_t cc1200_tx_settings[CC1200_REG_NUM*3] =
 	{
-		0x00, 0x01, 0x30, //IOCFG2, GPIO2 - CFM_TX_DATA_CLK (does not work for some reason)
+		0x00, 0x01, 0x08, //IOCFG2, GPIO2 - CFM_TX_DATA_CLK
 		0x00, 0x03, 0x09,
 		0x00, 0x08, 0x1F,
 		0x00, 0x0A, 0xAD, //deviation - a little bit under 3.3kHz full scale
@@ -243,6 +243,9 @@ void trx_config(enum mode_t mode, trx_data_t trx_data)
 		//apply config - RX
 		trx_reg_init(cc1200_rx_settings);
 
+		//for some reason, this register needs to be accessed here
+		trx_write_reg(0x0001, 29);			//IOCFG2, GPIO2 - CLKEN_CFM
+
 		//overwrite a few registers: carrier sense test
 		trx_write_reg(0x0000, 17);			//register 0x0000: IOCFG3, GPIO3 - CARRIER_SENSE
 		trx_write_reg(0x0018, 256-97);		//register 0x0018: AGC_GAIN_ADJUST
@@ -273,6 +276,9 @@ void trx_config(enum mode_t mode, trx_data_t trx_data)
 
 		//apply config - TX
 		trx_reg_init(cc1200_tx_settings);
+
+		//for some reason, this register needs to be accessed here
+		trx_write_reg(0x0001, 30);		//IOCFG2, GPIO2 - CFM_TX_DATA_CLK
 	}
 
 	//frequency correction

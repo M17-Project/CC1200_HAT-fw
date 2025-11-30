@@ -44,6 +44,7 @@
 #define SHORT_TXQ_SIZE			8					//TX queue length (short messages)
 #define LONG_TXQ_SIZE   		2					//TX queue length (baseband transfers)
 #define BSB_SIZE				960					//size of baseband chunks
+#define BSB_TX_BUFF_SIZE		(10*BSB_SIZE)		//large buffer for baseband
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -107,7 +108,11 @@ volatile uint8_t bsbq_busy;
 uint8_t bsb_rx[2*BSB_SIZE];									//rx samples
 volatile uint8_t rx_pend;									//pending rx sample read?
 uint16_t rx_num_wr;
-volatile uint8_t tx_pend;									//pending tx sample write?
+
+//volatile uint8_t tx_pend;									//pending tx sample write?
+uint8_t circ_bsb_tx_buff[BSB_TX_BUFF_SIZE];
+volatile uint16_t circ_bsb_buff_tail;
+volatile uint16_t circ_bsb_buff_head;
 
 volatile enum trx_state_t trx_state = TRX_IDLE;				//transmitter state
 
@@ -353,6 +358,11 @@ void parse_cmd(const uint8_t *cmd_buff)
 	  		  {
 				  if(trx_state==TRX_IDLE && dev_err==ERR_OK)
 				  {
+					  //reset the buffer and state machine
+					  memset(circ_bsb_tx_buff, 0, sizeof(circ_bsb_tx_buff));
+					  circ_bsb_buff_tail = 0;
+					  circ_bsb_buff_head = 0;
+
 					  //config CC1200
 					  trx_state = TRX_TX;
 					  trx_config(MODE_TX, trx_data);
@@ -366,15 +376,15 @@ void parse_cmd(const uint8_t *cmd_buff)
 					  trx_set_CS(0); //CS low
 					  HAL_SPI_Transmit(&hspi1, header, 2, 2); //send 2-byte header
 
-					  //enable external baseband sample triggering
-					  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
-
 					  //reply
 					  interface_resp_byte(cid, ERR_OK);
 
 					  //signal TX state with LEDs
 					  HAL_GPIO_WritePin(TX_LED_GPIO_Port, TX_LED_Pin, 1);
 					  HAL_GPIO_WritePin(RX_LED_GPIO_Port, RX_LED_Pin, 0);
+
+					  //enable external baseband sample triggering
+					  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 				  }
 				  else
 				  {
@@ -485,7 +495,30 @@ void parse_cmd(const uint8_t *cmd_buff)
 	  	  case CMD_TX_DATA:
 	  		  //TODO: add a real data handler here
 	  		  if (trx_state==TRX_TX && pld_len==960)
-	  			  interface_resp_byte(cid, ERR_OK);
+	  		  {
+	  			  //enough space in the circular buffer?
+	  			  if ((circ_bsb_buff_tail - circ_bsb_buff_head - 1 + BSB_TX_BUFF_SIZE) % BSB_TX_BUFF_SIZE >= 960)
+	  			  {
+	  				  u32_val = BSB_TX_BUFF_SIZE - circ_bsb_buff_head;
+
+	  				  if (u32_val >= 960)
+	  				  {
+	  					  memcpy(&circ_bsb_tx_buff[circ_bsb_buff_head], pld, 960);
+	  				  }
+	  				  else
+	  				  {
+					      memcpy(&circ_bsb_tx_buff[circ_bsb_buff_head], pld, u32_val);
+						  memcpy(&circ_bsb_tx_buff[0], pld + u32_val, 960 - u32_val);
+	  				  }
+
+					  circ_bsb_buff_head = (circ_bsb_buff_head+960) % BSB_TX_BUFF_SIZE;
+					  interface_resp_byte(cid, ERR_OK);
+	  			  }
+	  			  else
+	  			  {
+	  				  interface_resp_byte(cid, ERR_BUFF_FULL);
+	  			  }
+	  		  }
 	  	  break;
 
 	  	  case CMD_GET_IDENT:
@@ -632,7 +665,12 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
 	if(GPIO_Pin==TRX_TRIG_Pin)
 	{
-		tx_pend = 1;
+		//tx_pend = 1;
+		if (trx_state == TRX_TX)
+		{
+			HAL_SPI_Transmit_DMA(&hspi1, &circ_bsb_tx_buff[circ_bsb_buff_tail], 1);
+			circ_bsb_buff_tail = (circ_bsb_buff_tail+1) % sizeof(circ_bsb_tx_buff);
+		}
 	}
 
 	/*else if(GPIO_Pin==TRX_GPIO3_Pin) //carrier sense test
@@ -837,11 +875,11 @@ int main(void)
 		  rx_pend = 0;
 	  }
 
-	  if (tx_pend)
+	  /*if (tx_pend)
 	  {
 		  //HAL_SPI_Transmit
 		  tx_pend = 0;
-	  }
+	  }*/
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */

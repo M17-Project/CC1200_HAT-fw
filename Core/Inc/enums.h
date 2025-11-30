@@ -40,6 +40,7 @@ enum err_t
 	ERR_RANGE,				//value out of range
 	ERR_CMD_MALFORM,		//malformed command
 	ERR_BUSY,				//busy!
+	ERR_BUFF_FULL,			//buffer full
 	ERR_OTHER
 };
 
