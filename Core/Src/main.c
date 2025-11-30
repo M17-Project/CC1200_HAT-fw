@@ -351,10 +351,10 @@ void parse_cmd(const uint8_t *cmd_buff)
 
 	  		  if(u8_val) //start
 	  		  {
-				  /*if(trx_state!=TRX_TX && dev_err==ERR_OK)
+				  if(trx_state==TRX_IDLE && dev_err==ERR_OK)
 				  {
 					  //config CC1200
-					  trx_state=TRX_TX;
+					  trx_state = TRX_TX;
 					  trx_config(MODE_TX, trx_data);
 					  HAL_Delay(10);
 
@@ -364,10 +364,13 @@ void parse_cmd(const uint8_t *cmd_buff)
 					  //initiate samples transfer (write)
 					  uint8_t header[2]={0x2F|0x40, 0x7E}; //CFM_TX_DATA_IN, burst access
 					  trx_set_CS(0); //CS low
-					  HAL_SPI_Transmit(&hspi1, header, 2, 10); //send 2-byte header
+					  HAL_SPI_Transmit(&hspi1, header, 2, 2); //send 2-byte header
 
 					  //enable external baseband sample triggering
 					  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
+
+					  //reply
+					  interface_resp_byte(cid, ERR_OK);
 
 					  //signal TX state with LEDs
 					  HAL_GPIO_WritePin(TX_LED_GPIO_Port, TX_LED_Pin, 1);
@@ -376,19 +379,21 @@ void parse_cmd(const uint8_t *cmd_buff)
 				  else
 				  {
 					  if (dev_err!=ERR_OK)
-	  					  interface_resp_short(cid, (uint8_t*)&dev_err, sizeof(dev_err));
-				  }*/
+	  					  interface_resp_byte(cid, ERR_OTHER);
+					  else
+						  interface_resp_byte(cid, ERR_BUSY);
+				  }
 	  		  }
 	  		  else //stop
 	  		  {
-				  /*//disable external baseband sample triggering
+				  //disable external baseband sample triggering
 				  HAL_NVIC_DisableIRQ(EXTI15_10_IRQn);
 
 				  //finalize samples transfer
 				  trx_set_CS(1); //CS high
 
 			 	  //switch state
-				  trx_state=TRX_IDLE;
+				  trx_state = TRX_IDLE;
 
 				  //config CC1200
 				  trx_config(MODE_RX, trx_data);
@@ -397,11 +402,11 @@ void parse_cmd(const uint8_t *cmd_buff)
 				  //switch CC1200 to RX state
 				  trx_write_cmd(STR_SRX);
 
-				  //
+				  //turn off the TX LED
 				  HAL_GPIO_WritePin(TX_LED_GPIO_Port, TX_LED_Pin, 0);
 
 	  			  //reply
-	  			  interface_resp_byte(cid, ERR_OK);*/
+	  			  interface_resp_byte(cid, ERR_OK);
 	  		  }
 		  break;
 
@@ -418,7 +423,7 @@ void parse_cmd(const uint8_t *cmd_buff)
 
 	  		  if(u8_val) //start
 	  		  {
-	  			  if(trx_state!=TRX_RX && dev_err==ERR_OK)
+	  			  if(trx_state==TRX_IDLE && dev_err==ERR_OK)
 	  			  {
 	  				  //reset buffers
 	  				  memset(bsb_rx, 0, sizeof(bsb_rx));
@@ -431,7 +436,7 @@ void parse_cmd(const uint8_t *cmd_buff)
 
 	  				  //switch CC1200 to RX
 	  				  trx_write_cmd(STR_SRX);
-	  				  trx_state=TRX_RX;
+	  				  trx_state = TRX_RX;
 
 	  				  //initiate samples transfer (readout)
 	  				  uint8_t header[2] = {0x2F|0xC0, 0x7D};	//CFM_RX_DATA_OUT, burst access
@@ -443,14 +448,19 @@ void parse_cmd(const uint8_t *cmd_buff)
 	  				  TIM11->CNT = 0;
 	  				  HAL_TIM_Base_Start_IT(&htim11);
 
+	  				  //reply
+	  				  interface_resp_byte(cid, ERR_OK);
+
 	  				  //signal RX state with LEDs
 	  				  HAL_GPIO_WritePin(RX_LED_GPIO_Port, RX_LED_Pin, 1);
 	  				  HAL_GPIO_WritePin(TX_LED_GPIO_Port, TX_LED_Pin, 0);
 	  			  }
 	  			  else
 	  			  {
-	  				  if (dev_err!=ERR_OK)
-	  					  interface_resp_short(cid, (uint8_t*)&dev_err, sizeof(dev_err));
+					  if (dev_err!=ERR_OK)
+	  					  interface_resp_byte(cid, ERR_OTHER);
+					  else
+						  interface_resp_byte(cid, ERR_BUSY);
 	  			  }
 	  		  }
 	  		  else //stop
@@ -474,7 +484,8 @@ void parse_cmd(const uint8_t *cmd_buff)
 
 	  	  case CMD_TX_DATA:
 	  		  //TODO: add a real data handler here
-	  		  interface_resp_byte(cid, ERR_OK);
+	  		  if (trx_state==TRX_TX)
+	  			  interface_resp_byte(cid, ERR_OK);
 	  	  break;
 
 	  	  case CMD_GET_IDENT:

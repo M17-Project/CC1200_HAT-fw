@@ -38,7 +38,9 @@ enum err_t
 	ERR_TRX_PLL,			//TRX PLL lock error
 	ERR_TRX_SPI,			//TRX SPI comms error
 	ERR_RANGE,				//value out of range
-	ERR_CMD_MALFORM			//malformed command
+	ERR_CMD_MALFORM,		//malformed command
+	ERR_BUSY,				//busy!
+	ERR_OTHER
 };
 
 //internal TRX state, as per p. 8 of the datasheet
