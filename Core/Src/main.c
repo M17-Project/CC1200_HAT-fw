@@ -668,8 +668,17 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 		//tx_pend = 1;
 		if (trx_state == TRX_TX)
 		{
-			HAL_SPI_Transmit_DMA(&hspi1, &circ_bsb_tx_buff[circ_bsb_buff_tail], 1);
-			circ_bsb_buff_tail = (circ_bsb_buff_tail+1) % sizeof(circ_bsb_tx_buff);
+	        if (circ_bsb_buff_tail != circ_bsb_buff_head)
+	        {
+	            HAL_SPI_Transmit_DMA(&hspi1, &circ_bsb_tx_buff[circ_bsb_buff_tail], 1);
+
+	            circ_bsb_buff_tail = (circ_bsb_buff_tail + 1) % BSB_TX_BUFF_SIZE;
+	        }
+	        else
+	        {
+	            //buffer empty, send zeros
+	            HAL_SPI_Transmit_DMA(&hspi1, (uint8_t[]){0}, 1);
+	        }
 		}
 	}
 
