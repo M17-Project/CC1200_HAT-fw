@@ -41,6 +41,7 @@ enum err_t
 	ERR_CMD_MALFORM,		//malformed command
 	ERR_BUSY,				//busy!
 	ERR_BUFF_FULL,			//buffer full
+	ERR_NOP,				//nothing to do
 	ERR_OTHER
 };
 

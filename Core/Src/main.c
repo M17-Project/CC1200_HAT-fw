@@ -109,7 +109,6 @@ uint8_t bsb_rx[2*BSB_SIZE];									//rx samples
 volatile uint8_t rx_pend;									//pending rx sample read?
 uint16_t rx_num_wr;
 
-//volatile uint8_t tx_pend;									//pending tx sample write?
 uint8_t circ_bsb_tx_buff[BSB_TX_BUFF_SIZE];
 volatile uint16_t circ_bsb_buff_tail;
 volatile uint16_t circ_bsb_buff_head;
@@ -330,7 +329,7 @@ void parse_cmd(const uint8_t *cmd_buff)
 	  	case CMD_SET_AFC:
 	  		if (pld_len == 1)
 	  		{
-	  			memcpy((uint8_t*)&u8_val, pld, 1);
+	  			u8_val = *pld;
 	  		}
 	  		else
 	  		{
@@ -346,7 +345,7 @@ void parse_cmd(const uint8_t *cmd_buff)
 	  	  case CMD_TX_START:
 	  		  if (pld_len == 1)
 	  		  {
-	  			  memcpy((uint8_t*)&u8_val, pld, 1);
+	  			  u8_val = *pld;
 	  		  }
 	  		  else
 	  		  {
@@ -376,15 +375,15 @@ void parse_cmd(const uint8_t *cmd_buff)
 					  trx_set_CS(0); //CS low
 					  HAL_SPI_Transmit(&hspi1, header, 2, 2); //send 2-byte header
 
-					  //reply
-					  interface_resp_byte(cid, ERR_OK);
-
 					  //signal TX state with LEDs
 					  HAL_GPIO_WritePin(TX_LED_GPIO_Port, TX_LED_Pin, 1);
 					  HAL_GPIO_WritePin(RX_LED_GPIO_Port, RX_LED_Pin, 0);
 
 					  //enable external baseband sample triggering
 					  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
+
+					  //reply
+					  interface_resp_byte(cid, ERR_OK);
 				  }
 				  else
 				  {
@@ -396,34 +395,44 @@ void parse_cmd(const uint8_t *cmd_buff)
 	  		  }
 	  		  else //stop
 	  		  {
-				  //disable external baseband sample triggering
-				  HAL_NVIC_DisableIRQ(EXTI15_10_IRQn);
+	  			  if(trx_state==TRX_TX && dev_err==ERR_OK)
+	  			  {
+					  //disable external baseband sample triggering
+					  HAL_NVIC_DisableIRQ(EXTI15_10_IRQn);
 
-				  //finalize samples transfer
-				  trx_set_CS(1); //CS high
+					  //finalize samples transfer
+					  trx_set_CS(1); //CS high
 
-			 	  //switch state
-				  trx_state = TRX_IDLE;
+					  //switch state
+					  trx_state = TRX_IDLE;
 
-				  //config CC1200
-				  trx_config(MODE_RX, trx_data);
-				  HAL_Delay(10);
+					  //config CC1200
+					  trx_config(MODE_RX, trx_data);
+					  HAL_Delay(10);
 
-				  //switch CC1200 to RX state
-				  trx_write_cmd(STR_SRX);
+					  //switch CC1200 to RX state
+					  trx_write_cmd(STR_SRX);
 
-				  //turn off the TX LED
-				  HAL_GPIO_WritePin(TX_LED_GPIO_Port, TX_LED_Pin, 0);
+					  //turn off the TX LED
+					  HAL_GPIO_WritePin(TX_LED_GPIO_Port, TX_LED_Pin, 0);
 
-	  			  //reply
-	  			  interface_resp_byte(cid, ERR_OK);
+					  //reply
+					  interface_resp_byte(cid, ERR_OK);
+	  		  	  }
+	  			  else
+	  			  {
+	  				  if (dev_err!=ERR_OK)
+	  					  interface_resp_byte(cid, ERR_OTHER);
+	  				  else
+	  					  interface_resp_byte(cid, ERR_NOP);
+	  			  }
 	  		  }
 		  break;
 
 	  	  case CMD_RX_START:
 	  		  if (pld_len == 1)
 	  		  {
-	  			  memcpy((uint8_t*)&u8_val, pld, 1);
+	  			  u8_val = *pld;
 	  		  }
 	  		  else
 	  		  {
@@ -458,12 +467,12 @@ void parse_cmd(const uint8_t *cmd_buff)
 	  				  TIM11->CNT = 0;
 	  				  HAL_TIM_Base_Start_IT(&htim11);
 
-	  				  //reply
-	  				  interface_resp_byte(cid, ERR_OK);
-
 	  				  //signal RX state with LEDs
 	  				  HAL_GPIO_WritePin(RX_LED_GPIO_Port, RX_LED_Pin, 1);
 	  				  HAL_GPIO_WritePin(TX_LED_GPIO_Port, TX_LED_Pin, 0);
+
+	  				  //reply
+	  				  interface_resp_byte(cid, ERR_OK);
 	  			  }
 	  			  else
 	  			  {
@@ -475,25 +484,34 @@ void parse_cmd(const uint8_t *cmd_buff)
 	  		  }
 	  		  else //stop
 	  		  {
-	  			  //disable read baseband trigger signal
-	  			  HAL_TIM_Base_Stop_IT(&htim11);
+	  			  if (trx_state==TRX_RX && dev_err==ERR_OK)
+				  {
+					  //disable read baseband trigger signal
+					  HAL_TIM_Base_Stop_IT(&htim11);
 
-	  			  //finalize SPI samples transfer
-	  			  trx_set_CS(1);
+					  //finalize SPI samples transfer
+					  trx_set_CS(1);
 
-	  			  //switch device state
-	  			  trx_state = TRX_IDLE;
+					  //switch device state
+					  trx_state = TRX_IDLE;
 
-	  			  //turn off the RX LED
-	  			  HAL_GPIO_WritePin(RX_LED_GPIO_Port, RX_LED_Pin, 0);
+					  //turn off the RX LED
+					  HAL_GPIO_WritePin(RX_LED_GPIO_Port, RX_LED_Pin, 0);
 
-	  			  //reply
-	  			  interface_resp_byte(cid, ERR_OK); //OK
+					  //reply
+					  interface_resp_byte(cid, ERR_OK); //OK
+				  }
+	  			  else
+	  			  {
+	  				  if (dev_err!=ERR_OK)
+	  					  interface_resp_byte(cid, ERR_OTHER);
+	  				  else
+	  					  interface_resp_byte(cid, ERR_NOP);
+	  			  }
 	  		  }
 		  break;
 
 	  	  case CMD_TX_DATA:
-	  		  //TODO: add a real data handler here
 	  		  if (trx_state==TRX_TX && pld_len==960)
 	  		  {
 	  			  //enough space in the circular buffer?
@@ -665,19 +683,18 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
 	if(GPIO_Pin==TRX_TRIG_Pin)
 	{
-		//tx_pend = 1;
 		if (trx_state == TRX_TX)
 		{
 	        if (circ_bsb_buff_tail != circ_bsb_buff_head)
 	        {
-	            HAL_SPI_Transmit_DMA(&hspi1, &circ_bsb_tx_buff[circ_bsb_buff_tail], 1);
+	            HAL_SPI_Transmit_IT(&hspi1, &circ_bsb_tx_buff[circ_bsb_buff_tail], 1);
 
 	            circ_bsb_buff_tail = (circ_bsb_buff_tail + 1) % BSB_TX_BUFF_SIZE;
 	        }
 	        else
 	        {
 	            //buffer empty, send zeros
-	            HAL_SPI_Transmit_DMA(&hspi1, (uint8_t[]){0}, 1);
+	            HAL_SPI_Transmit_IT(&hspi1, (uint8_t[]){0}, 1);
 	        }
 		}
 	}
@@ -883,12 +900,6 @@ int main(void)
 		  rx_num_wr %= 2*BSB_SIZE;
 		  rx_pend = 0;
 	  }
-
-	  /*if (tx_pend)
-	  {
-		  //HAL_SPI_Transmit
-		  tx_pend = 0;
-	  }*/
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
