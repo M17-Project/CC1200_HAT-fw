@@ -1,0 +1,314 @@
+#include "cc1200.h"
+#include "main.h"
+
+void trx_set_nRST(uint8_t state)
+{
+	if(state)
+		TRX_nRST_GPIO_Port->BSRR=(uint32_t)TRX_nRST_Pin;
+	else
+		TRX_nRST_GPIO_Port->BSRR=(uint32_t)TRX_nRST_Pin<<16;
+}
+
+void trx_set_CS(uint8_t state)
+{
+	if(state)
+		TRX_nCS_GPIO_Port->BSRR=(uint32_t)TRX_nCS_Pin;
+	else
+		TRX_nCS_GPIO_Port->BSRR=(uint32_t)TRX_nCS_Pin<<16;
+}
+
+uint8_t trx_read_reg(uint16_t addr)
+{
+	uint8_t txd[3] = {0, 0, 0};
+	uint8_t rxd[3] = {0, 0, 0};
+
+	trx_set_CS(0);
+	if((addr>>8) == 0)
+	{
+		txd[0]=(addr&0xFF)|0x80;
+		txd[1]=0;
+		HAL_SPI_TransmitReceive(&hspi1, txd, rxd, 2, 10);
+		trx_set_CS(1);
+		return rxd[1];
+	}
+	else
+	{
+		txd[0]=((addr>>8)&0xFF)|0x80;
+		txd[1]=addr&0xFF;
+		txd[2]=0;
+		HAL_SPI_TransmitReceive(&hspi1, txd, rxd, 3, 10);
+		trx_set_CS(1);
+		return rxd[2];
+	}
+}
+
+void trx_write_reg(uint16_t addr, uint8_t val)
+{
+	uint8_t txd[3] = {addr>>8, addr&0xFF, val};
+
+	trx_set_CS(0);
+	if((addr>>8) == 0)
+	{
+		txd[0]=addr&0xFF;
+		txd[1]=val;
+		HAL_SPI_Transmit(&hspi1, txd, 2, 10);
+	}
+	else
+	{
+		txd[0]=(addr>>8)&0xFF;
+		txd[1]=addr&0xFF;
+		txd[2]=val;
+		HAL_SPI_Transmit(&hspi1, txd, 3, 10);
+	}
+	trx_set_CS(1);
+}
+
+void trx_write_cmd(uint8_t addr)
+{
+	uint8_t txd = addr;
+
+	trx_set_CS(0);
+	HAL_SPI_Transmit(&hspi1, &txd, 1, 10);
+	trx_set_CS(1);
+}
+
+uint8_t trx_read_pn(void)
+{
+	return trx_read_reg(0x2F8F);
+}
+
+uint8_t trx_read_status(void)
+{
+	uint8_t txd=STR_SNOP; //no operation strobe
+	uint8_t rxd=0;
+
+	trx_set_CS(0);
+	HAL_SPI_TransmitReceive(&hspi1, &txd, &rxd, 1, 10);
+	trx_set_CS(1);
+
+	return rxd;
+}
+
+void trx_detect(char* out)
+{
+	uint8_t trxid = trx_read_pn();
+
+	if(trxid == 0x20)
+		sprintf(out, "CC1200");
+	else if(trxid == 0x21)
+		sprintf(out, "CC1201");
+	else
+		sprintf(out, "unknown ID (0x%02X)", trxid);
+}
+
+void trx_reg_init(uint8_t* settings)
+{
+	for(uint8_t i=0; i<CC1200_REG_NUM; i++)
+	{
+		trx_set_CS(0);
+		if(settings[i*3])
+			HAL_SPI_Transmit(&hspi1, &settings[i*3], 3, 10);
+		else
+			HAL_SPI_Transmit(&hspi1, &settings[i*3+1], 2, 10);
+		trx_set_CS(1);
+		//HAL_Delay(10);
+	}
+}
+
+void trx_config(enum mode_t mode, trx_data_t trx_data)
+{
+	static uint8_t cc1200_rx_settings[CC1200_REG_NUM*3] =
+	{
+		0x00, 0x01, 0x08, //IOCFG2, GPIO2 - CLKEN_CFM (does not work for some reason)
+		0x00, 0x03, 0x09,
+		0x00, 0x08, 0x1F,
+		0x00, 0x0A, 0xAD, //deviation - a little bit under 3.3kHz full scale
+		0x00, 0x0B, 0x00, //deviation
+		0x00, 0x0C, 0x5D,
+		0x00, 0x0D, 0x00,
+		0x00, 0x0E, 0x8A,
+		0x00, 0x0F, 0xCB,
+		0x00, 0x10, 0xAC, //RX filter BW - 9.5kHz
+		0x00, 0x11, 0x00,
+		0x00, 0x12, 0x45,
+		0x00, 0x13, 0x43, //symbol rate 2 - 1.5k sym/s
+		0x00, 0x14, 0xA9, //symbol rate 1
+		0x00, 0x15, 0x2A, //symbol rate 0
+		0x00, 0x16, 0x37, //AGC_REF - AGC Reference Level Configuration
+		0x00, 0x17, 0xEC,
+		0x00, 0x19, 0x11,
+		0x00, 0x1B, 0x51,
+		0x00, 0x1C, 0x87,
+		0x00, 0x1D, 0x00,
+		0x00, 0x20, 0x14,
+		0x00, 0x26, 0x03,
+		0x00, 0x27, 0x00,
+		0x00, 0x28, 0x20,
+		0x00, 0x2B, 0x03, //output power - 0x03..0x3F (doesn't matter for RX)
+		0x00, 0x2E, 0xFF,
+		0x2F, 0x00, 0x1C,
+		0x2F, 0x01, 0x02, //AFC, 0x22 - on, 0x02 - off
+		0x2F, 0x04, 0x0C, //external oscillator's frequency is 40 MHz
+		0x2F, 0x05, 0x09, //16x upsampler, CFM enable
+		0x2F, 0x0C, 0x57, //frequency - round((float)435000000/5000000*(1<<16))=0x570000
+		0x2F, 0x0D, 0x00, //frequency
+		0x2F, 0x0E, 0x00, //frequency
+		0x2F, 0x10, 0xEE,
+		0x2F, 0x11, 0x10,
+		0x2F, 0x12, 0x07,
+		0x2F, 0x13, 0xAF,
+		0x2F, 0x16, 0x40,
+		0x2F, 0x17, 0x0E,
+		0x2F, 0x19, 0x03,
+		0x2F, 0x1B, 0x33,
+		0x2F, 0x1D, 0x17,
+		0x2F, 0x1F, 0x00,
+		0x2F, 0x20, 0x6E,
+		0x2F, 0x21, 0x1C,
+		0x2F, 0x22, 0xAC,
+		0x2F, 0x27, 0xB5,
+		0x2F, 0x32, 0x0E,
+		0x2F, 0x36, 0x03,
+		0x2F, 0x91, 0x08
+	};
+
+	static uint8_t cc1200_tx_settings[CC1200_REG_NUM*3] =
+	{
+		0x00, 0x01, 0x08, //IOCFG2, GPIO2 - CFM_TX_DATA_CLK
+		0x00, 0x03, 0x09,
+		0x00, 0x08, 0x1F,
+		0x00, 0x0A, 0xAD, //deviation - a little bit under 3.3kHz full scale
+		0x00, 0x0B, 0x00, //deviation
+		0x00, 0x0C, 0x5D,
+		0x00, 0x0D, 0x00,
+		0x00, 0x0E, 0x8A,
+		0x00, 0x0F, 0xCB,
+		0x00, 0x10, 0xAC, //RX filter BW - 9.5kHz (doesn't matter for TX)
+		0x00, 0x11, 0x00,
+		0x00, 0x12, 0x45,
+		0x00, 0x13, 0x43, //symbol rate 2 - 1.5k symb/s
+		0x00, 0x14, 0xA9, //symbol rate 1
+		0x00, 0x15, 0x2A, //symbol rate 0
+		0x00, 0x16, 0x37,
+		0x00, 0x17, 0xEC,
+		0x00, 0x19, 0x11,
+		0x00, 0x1B, 0x51,
+		0x00, 0x1C, 0x87,
+		0x00, 0x1D, 0x00,
+		0x00, 0x20, 0x14,
+		0x00, 0x26, 0x03,
+		0x00, 0x27, 0x00,
+		0x00, 0x28, 0x20,
+		0x00, 0x2B, 0x03, //output power - 0x03..0x3F
+		0x00, 0x2E, 0xFF,
+		0x2F, 0x00, 0x1C,
+		0x2F, 0x01, 0x22,
+		0x2F, 0x04, 0x0C, //external oscillator's frequency is 40 MHz
+		0x2F, 0x05, 0x09, //16x upsampler, CFM enable
+		0x2F, 0x0C, 0x57, //frequency - round((float)435000000/5000000*(1<<16))=0x570000
+		0x2F, 0x0D, 0x00, //frequency
+		0x2F, 0x0E, 0x00, //frequency
+		0x2F, 0x10, 0xEE,
+		0x2F, 0x11, 0x10,
+		0x2F, 0x12, 0x07,
+		0x2F, 0x13, 0xAF,
+		0x2F, 0x16, 0x40,
+		0x2F, 0x17, 0x0E,
+		0x2F, 0x19, 0x03,
+		0x2F, 0x1B, 0x33,
+		0x2F, 0x1D, 0x17,
+		0x2F, 0x1F, 0x00,
+		0x2F, 0x20, 0x6E,
+		0x2F, 0x21, 0x1C,
+		0x2F, 0x22, 0xAC,
+		0x2F, 0x27, 0xB5,
+		0x2F, 0x32, 0x0E,
+		0x2F, 0x36, 0x03,
+		0x2F, 0x91, 0x08
+	};
+
+	uint32_t freq_word;
+	if(mode == MODE_RX)
+		freq_word=roundf((float)trx_data.rx_frequency/5000000.0*((uint32_t)1<<16));
+	else
+		freq_word=roundf((float)trx_data.tx_frequency/5000000.0*((uint32_t)1<<16));
+
+	if(mode == MODE_RX)
+	{
+		//update the frequency setting registers
+		cc1200_rx_settings[32*3-1]=(freq_word>>16)&0xFF;
+		cc1200_rx_settings[33*3-1]=(freq_word>>8)&0xFF;
+		cc1200_rx_settings[34*3-1]=freq_word&0xFF;
+
+		//apply config - RX
+		trx_reg_init(cc1200_rx_settings);
+
+		//for some reason, this register needs to be accessed here
+		trx_write_reg(0x0001, 29);			//IOCFG2, GPIO2 - CLKEN_CFM
+
+		//overwrite a few registers: carrier sense test
+		trx_write_reg(0x0000, 17);			//register 0x0000: IOCFG3, GPIO3 - CARRIER_SENSE
+		trx_write_reg(0x0018, 256-97);		//register 0x0018: AGC_GAIN_ADJUST
+		trx_write_reg(0x0017, 256-70);		//register 0x0017: AGC_CS_THR
+
+		//apply AFC
+		if(trx_data.afc)
+		{
+			trx_write_reg(0x2F01, 0x22);
+		}
+		else
+		{
+			trx_write_reg(0x2F01, 0x02);
+		}
+	}
+	else if(mode == MODE_TX)
+	{
+		uint8_t tx_pwr=trx_data.pwr;
+
+		if(tx_pwr>0x3F) tx_pwr=0x3F;
+		if(tx_pwr<0x03) tx_pwr=0x03;
+
+		//update power and frequency registers
+		cc1200_tx_settings[26*3-1]=tx_pwr;
+		cc1200_tx_settings[32*3-1]=(freq_word>>16)&0xFF;
+		cc1200_tx_settings[33*3-1]=(freq_word>>8)&0xFF;
+		cc1200_tx_settings[34*3-1]=freq_word&0xFF;
+
+		//apply config - TX
+		trx_reg_init(cc1200_tx_settings);
+
+		//for some reason, this register needs to be accessed here
+		trx_write_reg(0x0001, 30);		//IOCFG2, GPIO2 - CFM_TX_DATA_CLK
+	}
+
+	//frequency correction
+	trx_write_reg(0x2F0A, (uint16_t)trx_data.fcorr>>8);
+	trx_write_reg(0x2F0B, (uint16_t)trx_data.fcorr&0xFF);
+
+	//disable address autoincrement in burst mode (default - enabled)
+	trx_write_reg(0x2F06, 0);
+}
+
+void trx_reset(void)
+{
+	trx_set_nRST(0);
+	HAL_Delay(100);
+	trx_set_nRST(1);
+	HAL_Delay(50);
+	trx_set_CS(1);
+	HAL_Delay(100);
+	trx_write_cmd(STR_SRES);
+	HAL_Delay(50);
+}
+
+void trx_set_freq(uint32_t freq)
+{
+	trx_write_cmd(STR_IDLE);
+	HAL_Delay(10);
+
+	//reconfig TRX
+	uint32_t freq_word = roundf((float)freq/5000000.0f*((uint32_t)1<<16));
+	trx_write_reg(0x2F0C, (freq_word>>16)&0xFF);
+	trx_write_reg(0x2F0D, (freq_word>>8)&0xFF);
+	trx_write_reg(0x2F0E, freq_word&0xFF);
+}

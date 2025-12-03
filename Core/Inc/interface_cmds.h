@@ -1,10 +1,3 @@
-/*
- * interface_cmds.h
- *
- *  Created on: Dec 27, 2023
- *      Author: SP5WWP
- */
-
 #ifndef INC_INTERFACE_CMDS_H_
 #define INC_INTERFACE_CMDS_H_
 
@@ -19,8 +12,12 @@ enum cmd_t
 	CMD_SET_RESERVED,
 	CMD_SET_FREQ_CORR,
 	CMD_SET_AFC,
-	CMD_SET_TX_START,
-	CMD_SET_RX,
+	CMD_TX_START,
+	CMD_RX_START,
+	CMD_RX_DATA,
+	CMD_TX_DATA,
+	CMD_DBG_ENABLE,
+	CMD_DBG_TXT,
 
 	//GET
 	CMD_GET_IDENT = 0x80,
@@ -28,7 +25,9 @@ enum cmd_t
 	CMD_GET_RX_FREQ,
 	CMD_GET_TX_FREQ,
 	CMD_GET_TX_POWER,
-	CMD_GET_FREQ_CORR
+	CMD_GET_FREQ_CORR,
+	CMD_GET_BSB_BUFF,
+	CMD_GET_RSSI
 };
 
 #endif /* INC_INTERFACE_CMDS_H_ */

@@ -1,11 +1,5 @@
-/*
- * enums.h
- *
- *  Created on: Dec 27, 2023
- *      Author: SP5WWP
- */
-
-#pragma once
+#ifndef INC_ENUMS_H_
+#define INC_ENUMS_H_
 
 enum mode_t
 {
@@ -43,7 +37,12 @@ enum err_t
 	ERR_OK,					//all good
 	ERR_TRX_PLL,			//TRX PLL lock error
 	ERR_TRX_SPI,			//TRX SPI comms error
-	ERR_RANGE				//value out of range
+	ERR_RANGE,				//value out of range
+	ERR_CMD_MALFORM,		//malformed command
+	ERR_BUSY,				//busy!
+	ERR_BUFF_FULL,			//buffer full
+	ERR_NOP,				//nothing to do
+	ERR_OTHER
 };
 
 //internal TRX state, as per p. 8 of the datasheet
@@ -59,9 +58,5 @@ enum int_state_t
 	STATE_TX_FIFO_ERR
 };
 
-const char *errstrings[5]=
-{
-	"OK",
-	"PLL did not lock",
-	"SPI communication error",
-};
+#endif
+
