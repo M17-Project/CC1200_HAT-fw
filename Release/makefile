@@ -63,22 +63,22 @@ all: main-build
 main-build: CC1200_HAT-fw.elf secondary-outputs
 
 # Tool invocations
-CC1200_HAT-fw.elf CC1200_HAT-fw.map: $(OBJS) $(USER_OBJS) C:\Users\SP5WWP\Documents\CubeIDE\CC1200_HAT-fw\STM32F411CEUX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "CC1200_HAT-fw.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"C:\Users\SP5WWP\Documents\CubeIDE\CC1200_HAT-fw\STM32F411CEUX_FLASH.ld" --specs=nosys.specs -Wl,-Map="CC1200_HAT-fw.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
+CC1200_HAT-fw.elf CC1200_HAT-fw.map: $(OBJS) $(USER_OBJS) ../STM32F411CEUX_FLASH.ld makefile $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-gcc -o "CC1200_HAT-fw.elf" $(OBJS) $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"../STM32F411CEUX_FLASH.ld" --specs=nosys.specs -Wl,-Map="CC1200_HAT-fw.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 
-default.size.stdout: $(EXECUTABLES) makefile objects.list $(OPTIONAL_TOOL_DEPS)
+default.size.stdout: $(EXECUTABLES) makefile $(OPTIONAL_TOOL_DEPS)
 	arm-none-eabi-size  $(EXECUTABLES)
 	@echo 'Finished building: $@'
 	@echo ' '
 
-CC1200_HAT-fw.list: $(EXECUTABLES) makefile objects.list $(OPTIONAL_TOOL_DEPS)
+CC1200_HAT-fw.list: $(EXECUTABLES) makefile $(OPTIONAL_TOOL_DEPS)
 	arm-none-eabi-objdump -h -S $(EXECUTABLES) > "CC1200_HAT-fw.list"
 	@echo 'Finished building: $@'
 	@echo ' '
 
-CC1200_HAT-fw.bin: $(EXECUTABLES) makefile objects.list $(OPTIONAL_TOOL_DEPS)
+CC1200_HAT-fw.bin: $(EXECUTABLES) makefile $(OPTIONAL_TOOL_DEPS)
 	arm-none-eabi-objcopy  -O binary $(EXECUTABLES) "CC1200_HAT-fw.bin"
 	@echo 'Finished building: $@'
 	@echo ' '
