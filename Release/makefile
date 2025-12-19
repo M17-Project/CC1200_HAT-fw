@@ -63,8 +63,8 @@ all: main-build
 main-build: CC1200_HAT-fw.elf secondary-outputs
 
 # Tool invocations
-CC1200_HAT-fw.elf CC1200_HAT-fw.map: $(OBJS) $(USER_OBJS) C:\Users\SP5WWP\Documents\CubeMX\CC1200_HAT-fw\STM32F411CEUX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "CC1200_HAT-fw.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"C:\Users\SP5WWP\Documents\CubeMX\CC1200_HAT-fw\STM32F411CEUX_FLASH.ld" --specs=nosys.specs -Wl,-Map="CC1200_HAT-fw.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
+CC1200_HAT-fw.elf CC1200_HAT-fw.map: $(OBJS) $(USER_OBJS) C:\Users\SP5WWP\Documents\CubeIDE\CC1200_HAT-fw\STM32F411CEUX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-gcc -o "CC1200_HAT-fw.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"C:\Users\SP5WWP\Documents\CubeIDE\CC1200_HAT-fw\STM32F411CEUX_FLASH.ld" --specs=nosys.specs -Wl,-Map="CC1200_HAT-fw.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 

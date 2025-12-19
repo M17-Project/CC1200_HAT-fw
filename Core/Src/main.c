@@ -38,7 +38,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define IDENT_STR				"CC1200-HAT 420-450 MHz\nFW v2.0 by Wojciech SP5WWP"
+#define IDENT_STR				"CC1200-HAT 420-450 MHz\nFW v2.1 by Wojciech SP5WWP"
 #define UART_LONG_BUF_SIZE		1024				//buffer length for UART (baseband transfers)
 #define UART_SHORT_BUF_SIZE		128					//buffer length for UART
 #define SHORT_TXQ_SIZE			8					//TX queue length (short messages)
@@ -247,7 +247,6 @@ void parse_cmd(const uint8_t *cmd_buff)
 			if(u32_val>=420e6 && u32_val<=450e6)
 			{
 				trx_data.rx_frequency = u32_val;
-				trx_set_freq(u32_val);
 				interface_resp_byte(cid, ERR_OK);
 			}
 			else
@@ -270,7 +269,6 @@ void parse_cmd(const uint8_t *cmd_buff)
 			if(u32_val>=420e6 && u32_val<=450e6)
 			{
 				trx_data.tx_frequency = u32_val;
-				trx_set_freq(u32_val);
 				interface_resp_byte(cid, ERR_OK);
 			}
 			else
