@@ -38,7 +38,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define IDENT_STR				"CC1200-HAT 420-450 MHz\nFW v2.1 by Wojciech SP5WWP"
+#define IDENT_STR				"CC1200-HAT 420-450 MHz\nFW v2.2 by Wojciech SP5WWP"
 #define UART_LONG_BUF_SIZE		1024				//buffer length for UART (baseband transfers)
 #define UART_SHORT_BUF_SIZE		128					//buffer length for UART
 #define SHORT_TXQ_SIZE			8					//TX queue length (short messages)
@@ -692,7 +692,8 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 	        else
 	        {
 	            //buffer empty, send zeros
-	            HAL_SPI_Transmit_IT(&hspi1, (uint8_t[]){0}, 1);
+	        	static uint8_t zero = 0;
+	            HAL_SPI_Transmit_IT(&hspi1, &zero, 1);
 	        }
 		}
 	}
