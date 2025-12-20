@@ -233,6 +233,9 @@ void trx_config(enum mode_t mode, trx_data_t trx_data)
 	else
 		freq_word=roundf((float)trx_data.tx_frequency/5000000.0*((uint32_t)1<<16));
 
+	trx_write_cmd(STR_IDLE);
+	HAL_Delay(10);
+
 	if(mode == MODE_RX)
 	{
 		//update the frequency setting registers
