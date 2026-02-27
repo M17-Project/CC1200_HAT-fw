@@ -625,7 +625,7 @@ void push_byte(uint8_t *dst_buff, uint8_t inp_byte)
     //finish work if rx complete
     if (rx_expected > 0 && rx_count == rx_expected)
     {
-        //copy to your main rxb[] buffer exactly like old code
+        //copy to dst_buff[] buffer
         memcpy(dst_buff, buff, rx_expected);
 
         //parse the received packet
