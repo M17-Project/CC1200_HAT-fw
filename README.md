@@ -1,5 +1,5 @@
 # CC1200_HAT-fw
-Basic firmware for the [CC1200 HAT RF board](https://github.com/M17-Project/CC1200_HAT-hw). Generated with CubeMX 6.16.1.
+Basic firmware for the [CC1200 HAT RF board](https://github.com/M17-Project/CC1200_HAT-hw). Generated with CubeMX 6.18.1.
 
 ### Firmware function
 This firmware turns the CC1200 HAT into an RF modem for M17.
